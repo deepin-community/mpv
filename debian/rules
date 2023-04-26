@@ -27,6 +27,7 @@ override_dh_auto_configure:
 			--enable-dvdnav					\
 			--enable-libmpv-shared				\
 			--enable-sdl2					\
+			--enable-gl-x11				\
 			--disable-build-date				\
 			$(ARCH_CONFIGURE)
 

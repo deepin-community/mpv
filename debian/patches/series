@@ -1,3 +1,6 @@
 0001-waf.patch
 0002-Add-keywords-to-desktop-file.patch
 0003-io-stdin-used.patch
+0004-pgv-flower-screen.patch
+0005-vdpau-render.patch
+0006-fix-Fix-the-problem-of-the-full-screen-crash.patch

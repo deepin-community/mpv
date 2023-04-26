@@ -1,13 +1,13 @@
 Source: mpv
 Section: video
 Priority: optional
-Maintainer: Deepin Developer <deepin-dev@deepin.org>
-Uploaders: Deepin Packages Builder <packages@deepin.org>
+Maintainer: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Uploaders: Alessandro Ghedini <ghedo@debian.org>,
  Reinhard Tartler <siretart@tauware.de>,
  James Cowgill <jcowgill@debian.org>
 Build-Depends:
- debhelper-compat (= 13),
- libarchive-dev (>= 3.4),
+ debhelper-compat (= 12),
+# libarchive-dev (>= 3.4),
  libasound2-dev [linux-any],
  libass-dev,
  libavcodec-dev (>= 7:4.0),
@@ -22,19 +22,18 @@ Build-Depends:
  libdvdnav-dev,
  libegl1-mesa-dev [linux-any],
  libgbm-dev,
- libffmpeg-nvenc-dev [amd64 arm64 i386],
+# libffmpeg-nvenc-dev [amd64 arm64 i386],
  libgl1-mesa-dev,
- libjack-dev,
  libjpeg-dev,
  liblcms2-dev (>= 2.6~),
  liblua5.2-dev,
- libmujs-dev,
- libplacebo-dev (>= 3.104),
+# libmujs-dev,
+# libplacebo-dev (>= 3.104),
  libpulse-dev,
  librubberband-dev,
  libsdl2-dev,
- libsixel-dev,
- libspirv-cross-c-shared-dev,
+# libsixel-dev,
+# libspirv-cross-c-shared-dev,
  libswscale-dev (>= 7:4.0),
  libuchardet-dev,
  libva-dev,
@@ -47,16 +46,18 @@ Build-Depends:
  libxrandr-dev,
  libxss-dev,
  libxv-dev,
- libzimg-dev,
+# libzimg-dev,
  pkg-config,
  python3,
  python3-docutils,
- spirv-cross,
+# spirv-cross,
  wayland-protocols,
+ libdmx-dev,
+ libxpresent-dev,
 Standards-Version: 4.6.0
 Homepage: https://mpv.io/
-#Vcs-Git
-#Vcs-Browser
+Vcs-Git: https://salsa.debian.org/multimedia-team/mpv.git
+Vcs-Browser: https://salsa.debian.org/multimedia-team/mpv
 Rules-Requires-Root: no
 
 Package: mpv
