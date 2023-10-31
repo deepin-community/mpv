@@ -25,9 +25,8 @@ struct vulkan_opts {
     char *device; // force a specific GPU
     int swap_mode;
     int queue_count;
-    int async_transfer;
-    int async_compute;
-    int disable_events;
+    bool async_transfer;
+    bool async_compute;
 };
 
 static int vk_validate_dev(struct mp_log *log, const struct m_option *opt,
@@ -97,9 +96,9 @@ const struct m_sub_options vulkan_conf = {
             {"mailbox",      VK_PRESENT_MODE_MAILBOX_KHR},
             {"immediate",    VK_PRESENT_MODE_IMMEDIATE_KHR})},
         {"vulkan-queue-count", OPT_INT(queue_count), M_RANGE(1, 8)},
-        {"vulkan-async-transfer", OPT_FLAG(async_transfer)},
-        {"vulkan-async-compute", OPT_FLAG(async_compute)},
-        {"vulkan-disable-events", OPT_FLAG(disable_events)},
+        {"vulkan-async-transfer", OPT_BOOL(async_transfer)},
+        {"vulkan-async-compute", OPT_BOOL(async_compute)},
+        {"vulkan-disable-events", OPT_REMOVED("Unused")},
         {0}
     },
     .size = sizeof(struct vulkan_opts),
@@ -115,7 +114,6 @@ struct priv {
     struct mpvk_ctx *vk;
     struct vulkan_opts *opts;
     struct ra_vk_ctx_params params;
-    const struct pl_swapchain *swapchain;
     struct ra_tex proxy_tex;
 };
 
@@ -123,7 +121,7 @@ static const struct ra_swapchain_fns vulkan_swapchain;
 
 struct mpvk_ctx *ra_vk_ctx_get(struct ra_ctx *ctx)
 {
-    if (ctx->swapchain->fns != &vulkan_swapchain)
+    if (!ctx->swapchain || ctx->swapchain->fns != &vulkan_swapchain)
         return NULL;
 
     struct priv *p = ctx->swapchain->priv;
@@ -140,7 +138,7 @@ void ra_vk_ctx_uninit(struct ra_ctx *ctx)
 
     if (ctx->ra) {
         pl_gpu_finish(vk->gpu);
-        pl_swapchain_destroy(&p->swapchain);
+        pl_swapchain_destroy(&vk->swapchain);
         ctx->ra->fns->destroy(ctx->ra);
         ctx->ra = NULL;
     }
@@ -163,16 +161,59 @@ bool ra_vk_ctx_init(struct ra_ctx *ctx, struct mpvk_ctx *vk,
     p->params = params;
     p->opts = mp_get_config_group(p, ctx->global, &vulkan_conf);
 
-    assert(vk->ctx);
+    VkPhysicalDeviceFeatures2 features = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+    };
+
+#if HAVE_VULKAN_INTEROP
+    /*
+     * Request the additional extensions and features required to make full use
+     * of the ffmpeg Vulkan hwcontext and video decoding capability.
+     */
+    const char *opt_extensions[] = {
+        VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
+        VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME,
+        VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME,
+        VK_KHR_VIDEO_DECODE_H264_EXTENSION_NAME,
+        VK_KHR_VIDEO_DECODE_H265_EXTENSION_NAME,
+        VK_KHR_VIDEO_QUEUE_EXTENSION_NAME,
+        // This is a literal string as it's not in the official headers yet.
+        "VK_MESA_video_decode_av1",
+    };
+
+    VkPhysicalDeviceDescriptorBufferFeaturesEXT descriptor_buffer_feature = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
+        .pNext = NULL,
+        .descriptorBuffer = true,
+        .descriptorBufferPushDescriptors = true,
+    };
+
+    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomic_float_feature = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+        .pNext = &descriptor_buffer_feature,
+        .shaderBufferFloat32Atomics = true,
+        .shaderBufferFloat32AtomicAdd = true,
+    };
+
+    features.pNext = &atomic_float_feature;
+#endif
+
+    assert(vk->pllog);
     assert(vk->vkinst);
-    vk->vulkan = pl_vulkan_create(vk->ctx, &(struct pl_vulkan_params) {
+    vk->vulkan = pl_vulkan_create(vk->pllog, &(struct pl_vulkan_params) {
         .instance = vk->vkinst->instance,
+        .get_proc_addr = vk->vkinst->get_proc_addr,
         .surface = vk->surface,
         .async_transfer = p->opts->async_transfer,
         .async_compute = p->opts->async_compute,
         .queue_count = p->opts->queue_count,
         .device_name = p->opts->device,
-        .disable_events = p->opts->disable_events,
+#if HAVE_VULKAN_INTEROP
+        .extra_queues = VK_QUEUE_VIDEO_DECODE_BIT_KHR,
+        .opt_extensions = opt_extensions,
+        .num_opt_extensions = MP_ARRAY_SIZE(opt_extensions),
+#endif
+        .features = &features,
     });
     if (!vk->vulkan)
         goto error;
@@ -195,8 +236,8 @@ bool ra_vk_ctx_init(struct ra_ctx *ctx, struct mpvk_ctx *vk,
     if (p->opts->swap_mode >= 0) // user override
         pl_params.present_mode = p->opts->swap_mode;
 
-    p->swapchain = pl_vulkan_create_swapchain(vk->vulkan, &pl_params);
-    if (!p->swapchain)
+    vk->swapchain = pl_vulkan_create_swapchain(vk->vulkan, &pl_params);
+    if (!vk->swapchain)
         goto error;
 
     return true;
@@ -210,7 +251,7 @@ bool ra_vk_ctx_resize(struct ra_ctx *ctx, int width, int height)
 {
     struct priv *p = ctx->swapchain->priv;
 
-    bool ok = pl_swapchain_resize(p->swapchain, &width, &height);
+    bool ok = pl_swapchain_resize(p->vk->swapchain, &width, &height);
     ctx->vo->dwidth = width;
     ctx->vo->dheight = height;
 
@@ -240,12 +281,16 @@ static bool start_frame(struct ra_swapchain *sw, struct ra_fbo *out_fbo)
 {
     struct priv *p = sw->priv;
     struct pl_swapchain_frame frame;
-    bool start = true;
-    if (p->params.start_frame)
-        start = p->params.start_frame(sw->ctx);
-    if (!start)
-        return false;
-    if (!pl_swapchain_start_frame(p->swapchain, &frame))
+
+    bool visible = true;
+    if (p->params.check_visible)
+        visible = p->params.check_visible(sw->ctx);
+
+    // If out_fbo is NULL, this was called from vo_gpu_next. Bail out.
+    if (out_fbo == NULL || !visible)
+        return visible;
+
+    if (!pl_swapchain_start_frame(p->vk->swapchain, &frame))
         return false;
     if (!mppl_wrap_tex(sw->ctx->ra, frame.fbo, &p->proxy_tex))
         return false;
@@ -261,13 +306,13 @@ static bool start_frame(struct ra_swapchain *sw, struct ra_fbo *out_fbo)
 static bool submit_frame(struct ra_swapchain *sw, const struct vo_frame *frame)
 {
     struct priv *p = sw->priv;
-    return pl_swapchain_submit_frame(p->swapchain);
+    return pl_swapchain_submit_frame(p->vk->swapchain);
 }
 
 static void swap_buffers(struct ra_swapchain *sw)
 {
     struct priv *p = sw->priv;
-    pl_swapchain_swap_buffers(p->swapchain);
+    pl_swapchain_swap_buffers(p->vk->swapchain);
     if (p->params.swap_buffers)
         p->params.swap_buffers(sw->ctx);
 }

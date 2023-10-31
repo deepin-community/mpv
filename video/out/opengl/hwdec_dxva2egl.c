@@ -73,7 +73,7 @@ static int init(struct ra_hwdec *hw)
     struct priv_owner *p = hw->priv;
     HRESULT hr;
 
-    if (!ra_is_gl(hw->ra))
+    if (!ra_is_gl(hw->ra_ctx->ra))
         return -1;
     if (!angle_load())
         return -1;
@@ -88,8 +88,7 @@ static int init(struct ra_hwdec *hw)
         return -1;
 
     const char *exts = eglQueryString(egl_display, EGL_EXTENSIONS);
-    if (!exts ||
-        !strstr(exts, "EGL_ANGLE_d3d_share_handle_client_buffer")) {
+    if (!gl_check_extension(exts, "EGL_ANGLE_d3d_share_handle_client_buffer")) {
         return -1;
     }
 
@@ -182,7 +181,14 @@ static int init(struct ra_hwdec *hw)
     p->hwctx = (struct mp_hwdec_ctx){
         .driver_name = hw->driver->name,
         .av_device_ref = d3d9_wrap_device_ref((IDirect3DDevice9 *)p->device9ex),
+        .hw_imgfmt = IMGFMT_DXVA2,
     };
+
+    if (!p->hwctx.av_device_ref) {
+        MP_VERBOSE(hw, "Failed to create hwdevice_ctx\n");
+        goto fail;
+    }
+
     hwdec_devices_add(hw->devs, &p->hwctx);
 
     return 0;

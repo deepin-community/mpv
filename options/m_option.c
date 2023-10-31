@@ -111,7 +111,7 @@ int m_option_required_params(const m_option_t *opt)
     if (opt->flags & M_OPT_OPTIONAL_PARAM)
         return 0;
     if (opt->type == &m_option_type_choice) {
-        struct m_opt_choice_alternatives *alt;
+        const struct m_opt_choice_alternatives *alt;
         for (alt = opt->priv; alt->name; alt++) {
             if (strcmp(alt->name, "yes") == 0)
                 return 0;
@@ -270,6 +270,7 @@ static bool flag_equal(const m_option_t *opt, void *a, void *b)
     return VAL(a) == VAL(b);
 }
 
+// Only exists for libmpv interopability and should not be used anywhere.
 const m_option_type_t m_option_type_flag = {
     // need yes or no in config files
     .name  = "Flag",
@@ -620,7 +621,7 @@ const char *m_opt_choice_str(const struct m_opt_choice_alternatives *choices,
 
 static void print_choice_values(struct mp_log *log, const struct m_option *opt)
 {
-    struct m_opt_choice_alternatives *alt = opt->priv;
+    const struct m_opt_choice_alternatives *alt = opt->priv;
     for ( ; alt->name; alt++)
         mp_info(log, "    %s\n", alt->name[0] ? alt->name : "(passing nothing)");
     if (opt->min < opt->max)
@@ -630,7 +631,7 @@ static void print_choice_values(struct mp_log *log, const struct m_option *opt)
 static int parse_choice(struct mp_log *log, const struct m_option *opt,
                         struct bstr name, struct bstr param, void *dst)
 {
-    struct m_opt_choice_alternatives *alt = opt->priv;
+    const struct m_opt_choice_alternatives *alt = opt->priv;
     for ( ; alt->name; alt++) {
         if (!bstrcmp0(param, alt->name))
             break;
@@ -677,7 +678,7 @@ static void choice_get_min_max(const struct m_option *opt, int *min, int *max)
     assert(opt->type == &m_option_type_choice);
     *min = INT_MAX;
     *max = INT_MIN;
-    for (struct m_opt_choice_alternatives *alt = opt->priv; alt->name; alt++) {
+    for (const struct m_opt_choice_alternatives *alt = opt->priv; alt->name; alt++) {
         *min = MPMIN(*min, alt->value);
         *max = MPMAX(*max, alt->value);
     }
@@ -721,7 +722,7 @@ static void add_choice(const m_option_t *opt, void *val, double add, bool wrap)
         }
     }
 
-    for (struct m_opt_choice_alternatives *alt = opt->priv; alt->name; alt++)
+    for (const struct m_opt_choice_alternatives *alt = opt->priv; alt->name; alt++)
         check_choice(dir, ival, &found, &best, alt->value);
 
     if (!found) {
@@ -754,11 +755,12 @@ static int choice_set(const m_option_t *opt, void *dst, struct mpv_node *src)
     return r;
 }
 
-static struct m_opt_choice_alternatives *get_choice(const m_option_t *opt,
-                                                    const void *val, int *out_val)
+static const struct m_opt_choice_alternatives *get_choice(const m_option_t *opt,
+                                                          const void *val,
+                                                          int *out_val)
 {
     int v = *(int *)val;
-    struct m_opt_choice_alternatives *alt;
+    const struct m_opt_choice_alternatives *alt;
     for (alt = opt->priv; alt->name; alt++) {
         if (alt->value == v)
             return alt;
@@ -769,14 +771,14 @@ static struct m_opt_choice_alternatives *get_choice(const m_option_t *opt,
             return NULL;
         }
     }
-    abort();
+    MP_ASSERT_UNREACHABLE();
 }
 
 static int choice_get(const m_option_t *opt, void *ta_parent,
                       struct mpv_node *dst, void *src)
 {
     int ival = 0;
-    struct m_opt_choice_alternatives *alt = get_choice(opt, src, &ival);
+    const struct m_opt_choice_alternatives *alt = get_choice(opt, src, &ival);
     // If a choice string looks like a number, return it as number
     if (alt) {
         char *end = NULL;
@@ -808,7 +810,7 @@ static int choice_get(const m_option_t *opt, void *ta_parent,
 static char *print_choice(const m_option_t *opt, const void *val)
 {
     int ival = 0;
-    struct m_opt_choice_alternatives *alt = get_choice(opt, val, &ival);
+    const struct m_opt_choice_alternatives *alt = get_choice(opt, val, &ival);
     return alt ? talloc_strdup(NULL, alt->name)
                : talloc_asprintf(NULL, "%d", ival);
 }
@@ -828,7 +830,7 @@ const struct m_option_type m_option_type_choice = {
 
 static int apply_flag(const struct m_option *opt, int *val, bstr flag)
 {
-    struct m_opt_choice_alternatives *alt;
+    const struct m_opt_choice_alternatives *alt;
     for (alt = opt->priv; alt->name; alt++) {
         if (bstr_equals0(flag, alt->name)) {
             if (*val & alt->value)
@@ -842,8 +844,8 @@ static int apply_flag(const struct m_option *opt, int *val, bstr flag)
 
 static const char *find_next_flag(const struct m_option *opt, int *val)
 {
-    struct m_opt_choice_alternatives *best = NULL;
-    struct m_opt_choice_alternatives *alt;
+    const struct m_opt_choice_alternatives *best = NULL;
+    const struct m_opt_choice_alternatives *alt;
     for (alt = opt->priv; alt->name; alt++) {
         if (alt->value && (alt->value & (*val)) == alt->value) {
             if (!best || av_popcount64(alt->value) > av_popcount64(best->value))
@@ -870,7 +872,7 @@ static int parse_flags(struct mp_log *log, const struct m_option *opt,
             mp_fatal(log, "Invalid flag for option %.*s: %.*s\n",
                      BSTR_P(name), BSTR_P(flag));
             mp_info(log, "Valid flags are:\n");
-            struct m_opt_choice_alternatives *alt;
+            const struct m_opt_choice_alternatives *alt;
             for (alt = opt->priv; alt->name; alt++)
                 mp_info(log, "    %s\n", alt->name);
             mp_info(log, "Flags can usually be combined with '+'.\n");
@@ -1754,7 +1756,7 @@ static int parse_keyvalue_list(struct mp_log *log, const m_option_t *opt,
     }
 
     if (param.len) {
-        mp_err(log, "Unparseable garbage at end of option value: '%.*s'\n",
+        mp_err(log, "Unparsable garbage at end of option value: '%.*s'\n",
                BSTR_P(param));
         r = M_OPT_INVALID;
     }
@@ -1946,7 +1948,7 @@ const m_option_type_t m_option_type_dummy_flag = {
 
 // Read s sub-option name, or a positional sub-opt value.
 // termset is a string containing the set of chars that terminate an option.
-// Return 0 on succes, M_OPT_ error code otherwise.
+// Return 0 on success, M_OPT_ error code otherwise.
 // optname is for error reporting.
 static int read_subparam(struct mp_log *log, bstr optname, char *termset,
                          bstr *str, bstr *out_subparam)
@@ -2272,7 +2274,7 @@ void m_geometry_apply(int *xpos, int *ypos, int *widw, int *widh,
             *widw = *widh * asp;
         }
         // Center window after resize. If valid x:y values are passed to
-        // geometry, then those values will be overriden.
+        // geometry, then those values will be overridden.
         *xpos += prew / 2 - *widw / 2;
         *ypos += preh / 2 - *widh / 2;
     }
@@ -3217,9 +3219,7 @@ static int parse_obj_settings(struct mp_log *log, struct bstr opt, int op,
     } else {
         char name[80];
         snprintf(name, sizeof(name), "%.*s", BSTR_P(str));
-        if (!list->allow_unknown_entries ||
-            (list->check_unknown_entry && !list->check_unknown_entry(name)))
-        {
+        if (list->check_unknown_entry && !list->check_unknown_entry(name)) {
             mp_err(log, "Option %.*s: %.*s doesn't exist.\n",
                    BSTR_P(opt), BSTR_P(str));
             return M_OPT_INVALID;
@@ -3313,7 +3313,7 @@ static int parse_obj_settings_list(struct mp_log *log, const m_option_t *opt,
     int op = OP_NONE;
     bool *mark_del = NULL;
     int num_items = obj_settings_list_num_items(dst ? VAL(dst) : 0);
-    struct m_obj_list *ol = opt->priv;
+    const struct m_obj_list *ol = opt->priv;
 
     assert(opt->priv);
 
@@ -3772,6 +3772,16 @@ static void dup_node(void *ta_parent, struct mpv_node *node)
                 for (int n = 0; n < new->num; n++)
                     new->keys[n] = talloc_strdup(new, oldlist->keys[n]);
             }
+        }
+        break;
+    }
+    case MPV_FORMAT_BYTE_ARRAY: {
+        struct mpv_byte_array *old = node->u.ba;
+        struct mpv_byte_array *new = talloc_zero(ta_parent, struct mpv_byte_array);
+        node->u.ba = new;
+        if (old->size > 0) {
+            *new = *old;
+            new->data = talloc_memdup(new, old->data, old->size);
         }
         break;
     }

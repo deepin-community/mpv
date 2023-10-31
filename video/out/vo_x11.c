@@ -24,7 +24,6 @@
 
 #include <libswscale/swscale.h>
 
-#include "config.h"
 #include "vo.h"
 #include "video/csputils.h"
 #include "video/mp_image.h"
@@ -34,6 +33,7 @@
 
 #include <errno.h>
 
+#include "present_sync.h"
 #include "x11_common.h"
 
 #include <sys/ipc.h>
@@ -133,12 +133,14 @@ shmemerror:
         p->myximage[foo] =
             XCreateImage(vo->x11->display, p->vinfo.visual, p->depth, ZPixmap,
                          0, NULL, p->image_width, p->image_height, 8, 0);
-        if (!p->myximage[foo]) {
+        if (p->myximage[foo]) {
+            p->myximage[foo]->data =
+                calloc(1, p->myximage[foo]->bytes_per_line * p->image_height + 32);
+        }
+        if (!p->myximage[foo] || !p->myximage[foo]->data) {
             MP_WARN(vo, "could not allocate image");
             return false;
         }
-        p->myximage[foo]->data =
-            calloc(1, p->myximage[foo]->bytes_per_line * p->image_height + 32);
     }
     return true;
 }
@@ -151,8 +153,13 @@ static void freeMyXImage(struct priv *p, int foo)
         XDestroyImage(p->myximage[foo]);
         shmdt(p->Shminfo[foo].shmaddr);
     } else {
-        if (p->myximage[foo])
+        if (p->myximage[foo]) {
+            // XDestroyImage() would free the data too since XFree() just calls
+            // free(), but do it ourselves for portability reasons
+            free(p->myximage[foo]->data);
+            p->myximage[foo]->data = NULL;
             XDestroyImage(p->myximage[foo]);
+        }
     }
     p->myximage[foo] = NULL;
 }
@@ -307,6 +314,17 @@ static void flip_page(struct vo *vo)
     struct priv *p = vo->priv;
     Display_Image(p, p->myximage[p->current_buf]);
     p->current_buf = (p->current_buf + 1) % 2;
+    if (vo->x11->use_present) {
+        vo_x11_present(vo);
+        present_sync_swap(vo->x11->present);
+    }
+}
+
+static void get_vsync(struct vo *vo, struct vo_vsync_info *info)
+{
+    struct vo_x11_state *x11 = vo->x11;
+    if (x11->use_present)
+        present_sync_get_info(x11->present, info);
 }
 
 // Note: REDRAW_FRAME can call this with NULL.
@@ -315,6 +333,9 @@ static void draw_image(struct vo *vo, mp_image_t *mpi)
     struct priv *p = vo->priv;
 
     wait_for_completion(vo, 1);
+    bool render = vo_x11_check_visible(vo);
+    if (!render)
+        return;
 
     struct mp_image *img = &p->mp_ximages[p->current_buf];
 
@@ -432,6 +453,7 @@ const struct vo_driver video_out_x11 = {
     .control = control,
     .draw_image = draw_image,
     .flip_page = flip_page,
+    .get_vsync = get_vsync,
     .wakeup = vo_x11_wakeup,
     .wait_events = vo_x11_wait_events,
     .uninit = uninit,
