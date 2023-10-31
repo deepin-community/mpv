@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "player/core.h"
 #include "osd.h"
 
 struct sh_stream;
@@ -36,7 +37,7 @@ struct attachment_list {
     int num_entries;
 };
 
-struct dec_sub *sub_create(struct mpv_global *global, struct sh_stream *sh,
+struct dec_sub *sub_create(struct mpv_global *global, struct track *track,
                            struct attachment_list *attachments, int order);
 void sub_destroy(struct dec_sub *sub);
 
@@ -51,6 +52,7 @@ void sub_reset(struct dec_sub *sub);
 void sub_select(struct dec_sub *sub, bool selected);
 void sub_set_recorder_sink(struct dec_sub *sub, struct mp_recorder_sink *sink);
 void sub_set_play_dir(struct dec_sub *sub, int dir);
+bool sub_is_primary_visible(struct dec_sub *sub);
 bool sub_is_secondary_visible(struct dec_sub *sub);
 
 int sub_control(struct dec_sub *sub, enum sd_ctrl cmd, void *arg);

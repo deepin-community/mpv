@@ -141,6 +141,11 @@ Available mpv-only filters are:
 
             For a list of available formats, use ``--vf=format=fmt=help``.
 
+        .. note::
+
+            Conversion between hardware formats is supported in some cases.
+            eg: ``cuda`` to ``vulkan``, or ``vaapi`` to ``vulkan``.
+
     ``<convert=yes|no>``
         Force conversion of color parameters (default: no).
 
@@ -163,6 +168,9 @@ Available mpv-only filters are:
 
         If input and output video parameters are the same, conversion is always
         skipped.
+
+        When converting between hardware formats, this parameter has no effect,
+        and the only conversion that is done is the format conversion.
 
         .. admonition:: Examples
 
@@ -307,6 +315,14 @@ Available mpv-only filters are:
        :hlg:          Scene-referred using the HLG OOTF (e.g. HLG content)
        :709-1886:     Scene-referred using the BT709+BT1886 interaction
        :gamma1.2:     Scene-referred using a pure power OOTF (gamma=1.2)
+
+    ``<dolbyvision=yes|no>``
+        Whether or not to include Dolby Vision metadata (default: yes). If
+        disabled, any Dolby Vision metadata will be stripped from frames.
+
+    ``<film-grain=yes|no>``
+        Whether or not to include film grain metadata (default: yes). If
+        disabled, any film grain metadata will be stripped from frames.
 
     ``<stereo-in>``
         Set the stereo mode the video is assumed to be encoded in. Use
@@ -457,7 +473,7 @@ Available mpv-only filters are:
             ::
 
                 import vapoursynth as vs
-                core = vs.get_core()
+                from vapoursynth import core
                 core.std.AddBorders(video_in, 10, 10, 20, 20).set_output()
 
         .. warning::

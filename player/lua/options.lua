@@ -1,12 +1,5 @@
 local msg = require 'mp.msg'
 
-local function val2str(val)
-    if type(val) == "boolean" then
-        if val then val = "yes" else val = "no" end
-    end
-    return val
-end
-
 -- converts val to type of desttypeval
 local function typeconv(desttypeval, val)
     if type(desttypeval) == "boolean" then
@@ -117,7 +110,7 @@ local function read_options(options, identifier, on_update)
 
     local function parse_opts(full, options)
         for key, val in pairs(full) do
-            if not (string.find(key, prefix, 1, true) == nil) then
+            if string.find(key, prefix, 1, true) == 1 then
                 key = string.sub(key, string.len(prefix)+1)
 
                 -- match found values with defaults

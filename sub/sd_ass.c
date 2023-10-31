@@ -43,6 +43,7 @@ struct sd_ass_priv {
     struct ass_renderer *ass_renderer;
     struct ass_track *ass_track;
     struct ass_track *shadow_track; // for --sub-ass=no rendering
+    bool ass_configured;
     bool is_converted;
     struct lavc_conv *converter;
     struct sd_filter **filters;
@@ -54,6 +55,7 @@ struct sd_ass_priv {
     char last_text[500];
     struct mp_image_params video_params;
     struct mp_image_params last_params;
+    struct mp_osd_res osd;
     int64_t *seen_packets;
     int num_seen_packets;
     bool duration_unknown;
@@ -206,7 +208,7 @@ static void assobjects_init(struct sd *sd)
     struct sd_ass_priv *ctx = sd->priv;
     struct mp_subtitle_opts *opts = sd->opts;
 
-    ctx->ass_library = mp_ass_init(sd->global, sd->log);
+    ctx->ass_library = mp_ass_init(sd->global, sd->opts->sub_style, sd->log);
     ass_set_extract_fonts(ctx->ass_library, opts->use_embedded_fonts);
 
     add_subtitle_fonts(sd);
@@ -261,9 +263,7 @@ static int init(struct sd *sd)
         strcmp(sd->codec->codec, "null") != 0)
     {
         ctx->is_converted = true;
-        ctx->converter = lavc_conv_create(sd->log, sd->codec->codec,
-                                          sd->codec->extradata,
-                                          sd->codec->extradata_size);
+        ctx->converter = lavc_conv_create(sd->log, sd->codec);
         if (!ctx->converter)
             return -1;
 
@@ -359,10 +359,14 @@ static void decode(struct sd *sd, struct demux_packet *packet)
             filter_and_add(sd, &pkt2);
         }
         if (ctx->duration_unknown) {
-            for (int n = 0; n < track->n_events - 1; n++) {
+            for (int n = track->n_events - 2; n >= 0; n--) {
                 if (track->events[n].Duration == UNKNOWN_DURATION * 1000) {
-                    track->events[n].Duration = track->events[n + 1].Start -
-                                                track->events[n].Start;
+                    if (track->events[n].Start != track->events[n + 1].Start) {
+                        track->events[n].Duration = track->events[n + 1].Start -
+                                                    track->events[n].Start;
+                    } else {
+                        track->events[n].Duration = track->events[n + 1].Duration;
+                    }
                 }
             }
         }
@@ -442,6 +446,38 @@ static void configure_ass(struct sd *sd, struct mp_osd_res *dim,
     ass_set_font_scale(priv, set_font_scale);
     ass_set_hinting(priv, set_hinting);
     ass_set_line_spacing(priv, set_line_spacing);
+#if LIBASS_VERSION >= 0x01600010
+    if (converted)
+        ass_track_set_feature(track, ASS_FEATURE_WRAP_UNICODE, 1);
+#endif
+    if (converted) {
+        bool override_playres = true;
+        char **ass_force_style_list = opts->ass_force_style_list;
+        for (int i = 0; ass_force_style_list && ass_force_style_list[i]; i++) {
+            if (bstr_find0(bstr0(ass_force_style_list[i]), "PlayResX") >= 0)
+                override_playres = false;
+        }
+
+        // srt to ass conversion from ffmpeg has fixed PlayResX of 384 with an
+        // aspect of 4:3. Starting with libass f08f8ea5 (pre 0.17) PlayResX
+        // affects shadow and border widths, among others, so to render borders
+        // and shadows correctly, we adjust PlayResX according to the DAR.
+        // But PlayResX also affects margins, so we adjust those too.
+        // This should ensure basic srt-to-ass ffmpeg conversion has correct
+        // borders, but there could be other issues with some srt extensions
+        // and/or different source formats which would be exposed over time.
+        // Make these adjustments only if the user didn't set PlayResX.
+        if (override_playres) {
+            int vidw = dim->w - (dim->ml + dim->mr);
+            int vidh = dim->h - (dim->mt + dim->mb);
+            track->PlayResX = track->PlayResY * (double)vidw / MPMAX(vidh, 1);
+            // ffmpeg and mpv use a default PlayResX of 384 when it is not known,
+            // this comes from VSFilter.
+            double fix_margins = track->PlayResX / 384.0;
+            track->styles->MarginL = round(track->styles->MarginL * fix_margins);
+            track->styles->MarginR = round(track->styles->MarginR * fix_margins);
+        }
+    }
 }
 
 static bool has_overrides(char *s)
@@ -531,13 +567,17 @@ static struct sub_bitmaps *get_bitmaps(struct sd *sd, struct mp_osd_res dim,
     ASS_Renderer *renderer = ctx->ass_renderer;
     struct sub_bitmaps *res = &(struct sub_bitmaps){0};
 
+    // Always update the osd_res
+    struct mp_osd_res old_osd = ctx->osd;
+    ctx->osd = dim;
+
     if (pts == MP_NOPTS_VALUE || !renderer)
         goto done;
 
     // Currently no supported text sub formats support a distinction between forced
     // and unforced lines, so we just assume everything's unforced and discard everything.
     // If we ever see a format that makes this distinction, we can add support here.
-    if (opts->forced_subs_only_current)
+    if (opts->forced_subs_only == 1 || (opts->forced_subs_only && sd->forced_only_def))
         goto done;
 
     double scale = dim.display_par;
@@ -549,7 +589,10 @@ static struct sub_bitmaps *get_bitmaps(struct sd *sd, struct mp_osd_res dim,
         if (isnormal(par))
             scale *= par;
     }
-    configure_ass(sd, &dim, converted, track);
+    if (!ctx->ass_configured || !osd_res_equals(old_osd, ctx->osd)) {
+        configure_ass(sd, &dim, converted, track);
+        ctx->ass_configured = true;
+    }
     ass_set_pixel_aspect(renderer, scale);
     if (!converted && (!opts->ass_style_override ||
                        opts->ass_vsfilter_blur_compat))
@@ -818,9 +861,14 @@ static int control(struct sd *sd, enum sd_ctrl cmd, void *arg)
             ctx->clear_once = true; // allow reloading on seeks
         }
         if (flags & UPDATE_SUB_HARD) {
+            // ass_track will be recreated, so clear duplicate cache
+            ctx->clear_once = true;
+            reset(sd);
+
             assobjects_destroy(sd);
             assobjects_init(sd);
         }
+        ctx->ass_configured = false; // ass always needs to be reconfigured
         return CONTROL_OK;
     }
     default:
@@ -896,7 +944,8 @@ static void mangle_colors(struct sd *sd, struct sub_bitmaps *parts)
         };
     }
 
-    if (csp == params.color.space && levels == params.color.levels)
+    if ((csp == params.color.space && levels == params.color.levels) ||
+            params.color.space == MP_CSP_RGB) // Even VSFilter doesn't mangle on RGB video
         return;
 
     bool basic_conv = params.color.space == MP_CSP_BT_709 &&

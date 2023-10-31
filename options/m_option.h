@@ -145,9 +145,6 @@ struct m_obj_list {
     const char *aliases[5][2];
     // Allow a trailing ",", which adds an entry with name=""
     bool allow_trailer;
-    // Allow unknown entries, for which a dummy entry is inserted, and whose
-    // options are skipped and ignored.
-    bool allow_unknown_entries;
     // Callback to test whether an unknown entry should be allowed. (This can
     // be useful if adding them as explicit entries is too much work.)
     bool (*check_unknown_entry)(const char *name);
@@ -215,6 +212,7 @@ struct m_sub_options {
     bool (*get_sub_options)(int index, const struct m_sub_options **sub);
 };
 
+#define CONF_TYPE_BOOL          (&m_option_type_bool)
 #define CONF_TYPE_FLAG          (&m_option_type_flag)
 #define CONF_TYPE_INT           (&m_option_type_int)
 #define CONF_TYPE_INT64         (&m_option_type_int64)
@@ -604,13 +602,10 @@ extern const char m_option_path_separator;
 #define OPTDEF_FLOAT(f)   .defval = (void *)&(const float){f}
 #define OPTDEF_DOUBLE(d)  .defval = (void *)&(const double){d}
 
-#define M_RANGE(a, b) .min = (a), .max = (b)
+#define M_RANGE(a, b) .min = (double) (a), .max = (double) (b)
 
 #define OPT_BOOL(field) \
     OPT_TYPED_FIELD(m_option_type_bool, bool, field)
-
-#define OPT_FLAG(field) \
-    OPT_TYPED_FIELD(m_option_type_flag, int, field)
 
 #define OPT_INT(field) \
     OPT_TYPED_FIELD(m_option_type_int, int, field)

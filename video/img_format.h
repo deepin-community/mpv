@@ -20,6 +20,7 @@
 
 #include <inttypes.h>
 
+#include "config.h"
 #include "osdep/endian.h"
 #include "misc/bstr.h"
 #include "video/csputils.h"
@@ -276,7 +277,6 @@ enum mp_imgfmt {
     IMGFMT_DXVA2,           // IDirect3DSurface9 (NV12/P010/P016)
     IMGFMT_MMAL,            // MMAL_BUFFER_HEADER_T
     IMGFMT_MEDIACODEC,      // AVMediaCodecBuffer
-    IMGFMT_DRMPRIME,        // AVDRMFrameDescriptor
     IMGFMT_CUDA,            // CUDA Buffer
 
     // Not an actual format; base for mpv-specific descriptor table.
@@ -319,6 +319,10 @@ enum mp_imgfmt {
     IMGFMT_VDPAU_OUTPUT,    // VdpOutputSurface
     IMGFMT_VAAPI,
     IMGFMT_VIDEOTOOLBOX,    // CVPixelBufferRef
+#if HAVE_VULKAN_INTEROP
+    IMGFMT_VULKAN,          // VKImage
+#endif
+    IMGFMT_DRMPRIME,        // AVDRMFrameDescriptor
 
     // Generic pass-through of AV_PIX_FMT_*. Used for formats which don't have
     // a corresponding IMGFMT_ value.
