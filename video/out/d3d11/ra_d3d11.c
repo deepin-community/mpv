@@ -1322,13 +1322,13 @@ static bool compile_glsl(struct ra *ra, enum glsl_shader type,
         sc_shader_model = 40;
     }
 
-    int64_t start_us = mp_time_us();
+    int64_t start_ns = mp_time_ns();
 
     bstr spv_module;
     if (!spirv->fns->compile_glsl(spirv, ta_ctx, type, glsl, &spv_module))
         goto done;
 
-    int64_t shaderc_us = mp_time_us();
+    int64_t shaderc_ns = mp_time_ns();
 
     sc_res = spvc_context_create(&sc_ctx);
     if (sc_res != SPVC_SUCCESS)
@@ -1367,7 +1367,7 @@ static bool compile_glsl(struct ra *ra, enum glsl_shader type,
     if (sc_res != SPVC_SUCCESS)
         goto done;
 
-    int64_t cross_us = mp_time_us();
+    int64_t cross_ns = mp_time_ns();
 
     hr = p->D3DCompile(hlsl, strlen(hlsl), NULL, NULL, NULL, "main",
         get_shader_target(ra, type), D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, out,
@@ -1379,14 +1379,14 @@ static bool compile_glsl(struct ra *ra, enum glsl_shader type,
         goto done;
     }
 
-    int64_t d3dcompile_us = mp_time_us();
+    int64_t d3dcompile_ns = mp_time_ns();
 
-    MP_VERBOSE(ra, "Compiled a %s shader in %lldus\n", shader_type_name(type),
-               d3dcompile_us - start_us);
-    MP_VERBOSE(ra, "shaderc: %lldus, SPIRV-Cross: %lldus, D3DCompile: %lldus\n",
-               shaderc_us - start_us,
-               cross_us - shaderc_us,
-               d3dcompile_us - cross_us);
+    MP_VERBOSE(ra, "Compiled a %s shader in %lldns\n", shader_type_name(type),
+               d3dcompile_ns - start_ns);
+    MP_VERBOSE(ra, "shaderc: %lldns, SPIRV-Cross: %lldns, D3DCompile: %lldns\n",
+               shaderc_ns - start_ns,
+               cross_ns - shaderc_ns,
+               d3dcompile_ns - cross_ns);
 
     success = true;
 done:
@@ -1598,7 +1598,7 @@ static void save_cached_program(struct ra *ra, struct ra_renderpass *pass,
         .comp_bytecode_len = comp_bc.len,
     };
     memcpy(header.magic, cache_magic, sizeof(header.magic));
-    strncpy(header.compiler, spirv->name, sizeof(header.compiler) - 1);
+    strncpy(header.compiler, spirv->name, sizeof(header.compiler));
 
     struct bstr *prog = &pass->params.cached_program;
     bstr_xappend(pass, prog, (bstr){ (char *) &header, sizeof(header) });
@@ -1930,7 +1930,7 @@ static void renderpass_run(struct ra *ra,
         int binding = pass->params.inputs[val->index].binding;
         switch (pass->params.inputs[val->index].type) {
         case RA_VARTYPE_BUF_RO:
-            if (binding > MP_ARRAY_SIZE(ubos)) {
+            if (binding >= MP_ARRAY_SIZE(ubos)) {
                 MP_ERR(ra, "Too many constant buffers in pass\n");
                 return;
             }
@@ -1952,7 +1952,7 @@ static void renderpass_run(struct ra *ra,
             uavs_len = MPMAX(uavs_len, binding + 1);
             break;
         case RA_VARTYPE_TEX:
-            if (binding > MP_ARRAY_SIZE(samplers)) {
+            if (binding >= MP_ARRAY_SIZE(samplers)) {
                 MP_ERR(ra, "Too many textures in pass\n");
                 return;
             }

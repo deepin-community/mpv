@@ -29,14 +29,15 @@
 
 #include <libavformat/avformat.h>
 #include <libavformat/avio.h>
+
 #include <libavutil/avutil.h>
 #include <libavutil/avstring.h>
-#include <libavutil/mathematics.h>
-#include <libavutil/replaygain.h>
 #include <libavutil/display.h>
-#include <libavutil/opt.h>
-
 #include <libavutil/dovi_meta.h>
+#include <libavutil/mathematics.h>
+#include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
+#include <libavutil/replaygain.h>
 
 #include "audio/chmap_avchannel.h"
 
@@ -146,7 +147,6 @@ struct format_hack {
     // segment, with e.g. HLS, player knows about the playlist main file only).
     bool clear_filepos : 1;
     bool linearize_audio_ts : 1;// compensate timestamp resets (audio only)
-    bool fix_editlists : 1;
     bool is_network : 1;
     bool no_seek : 1;
     bool no_pcm_seek : 1;
@@ -175,8 +175,7 @@ static const struct format_hack format_hacks[] = {
     {"mxf", .use_stream_ids = true},
     {"avi", .use_stream_ids = true},
     {"asf", .use_stream_ids = true},
-    {"mp4", .skipinfo = true, .fix_editlists = true, .no_pcm_seek = true,
-            .use_stream_ids = true},
+    {"mp4", .skipinfo = true, .no_pcm_seek = true, .use_stream_ids = true},
     {"matroska", .skipinfo = true, .no_pcm_seek = true, .use_stream_ids = true},
 
     {"v4l2", .no_seek = true},
@@ -244,7 +243,6 @@ typedef struct lavf_priv {
     double seek_delay;
 
     struct demux_lavf_opts *opts;
-    double mf_fps;
 
     bool pcm_seek_hack_disabled;
     AVStream *pcm_seek_hack;
@@ -513,6 +511,10 @@ static int lavf_check_file(demuxer_t *demuxer, enum demux_check check)
                 break;
             }
 
+            // AVIF always needs to find stream info
+            if (bstrcasecmp0(ext, "avif") == 0)
+                priv->format_hack.skipinfo = false;
+
             if (score >= lavfdopts->probescore)
                 break;
 
@@ -605,10 +607,17 @@ static void select_tracks(struct demuxer *demuxer, int start)
 static void export_replaygain(demuxer_t *demuxer, struct sh_stream *sh,
                               AVStream *st)
 {
-    for (int i = 0; i < st->nb_side_data; i++) {
+#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(60, 15, 100)
+    AVPacketSideData *side_data = st->codecpar->coded_side_data;
+    int nb_side_data = st->codecpar->nb_coded_side_data;
+#else
+    AVPacketSideData *side_data = st->side_data;
+    int nb_side_data = st->nb_side_data;
+#endif
+    for (int i = 0; i < nb_side_data; i++) {
         AVReplayGain *av_rgain;
         struct replaygain_data *rgain;
-        AVPacketSideData *src_sd = &st->side_data[i];
+        AVPacketSideData *src_sd = &side_data[i];
 
         if (src_sd->type != AV_PKT_DATA_REPLAYGAIN)
             continue;
@@ -667,10 +676,25 @@ static bool is_image(AVStream *st, bool attached_picture, const AVInputFormat *a
         bstr_endswith0(bstr0(avif->name), "_pipe") ||
         strcmp(avif->name, "alias_pix") == 0 ||
         strcmp(avif->name, "gif") == 0 ||
+        strcmp(avif->name, "ico") == 0 ||
         strcmp(avif->name, "image2pipe") == 0 ||
         (st->codecpar->codec_id == AV_CODEC_ID_AV1 && st->nb_frames == 1)
     );
 }
+
+#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(60, 15, 100)
+static inline const uint8_t *mp_av_stream_get_side_data(const AVStream *st,
+                                                        enum AVPacketSideDataType type)
+{
+    const AVPacketSideData *sd;
+    sd = av_packet_side_data_get(st->codecpar->coded_side_data,
+                                 st->codecpar->nb_coded_side_data,
+                                 type);
+    return sd ? sd->data : NULL;
+}
+#else
+#define mp_av_stream_get_side_data(st, type) av_stream_get_side_data(st, type, NULL)
+#endif
 
 static void handle_new_stream(demuxer_t *demuxer, int i)
 {
@@ -703,6 +727,7 @@ static void handle_new_stream(demuxer_t *demuxer, int i)
 
         sh->codec->samplerate = codec->sample_rate;
         sh->codec->bitrate = codec->bit_rate;
+        sh->codec->format_name = talloc_strdup(sh, av_get_sample_fmt_name(codec->format));
 
         double delay = 0;
         if (codec->sample_rate > 0)
@@ -741,24 +766,25 @@ static void handle_new_stream(demuxer_t *demuxer, int i)
 
         sh->codec->disp_w = codec->width;
         sh->codec->disp_h = codec->height;
+        sh->codec->format_name = talloc_strdup(sh, av_get_pix_fmt_name(codec->format));
         if (st->avg_frame_rate.num)
             sh->codec->fps = av_q2d(st->avg_frame_rate);
         if (is_image(st, sh->attached_picture, priv->avif)) {
             MP_VERBOSE(demuxer, "Assuming this is an image format.\n");
             sh->image = true;
-            sh->codec->fps = priv->mf_fps;
+            sh->codec->fps = demuxer->opts->mf_fps;
         }
         sh->codec->par_w = st->sample_aspect_ratio.num;
         sh->codec->par_h = st->sample_aspect_ratio.den;
 
-        uint8_t *sd = av_stream_get_side_data(st, AV_PKT_DATA_DISPLAYMATRIX, NULL);
+        const uint8_t *sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_DISPLAYMATRIX);
         if (sd) {
-            double r = av_display_rotation_get((uint32_t *)sd);
+            double r = av_display_rotation_get((int32_t *)sd);
             if (!isnan(r))
                 sh->codec->rotate = (((int)(-r) % 360) + 360) % 360;
         }
 
-        if ((sd = av_stream_get_side_data(st, AV_PKT_DATA_DOVI_CONF, NULL))) {
+        if ((sd = mp_av_stream_get_side_data(st, AV_PKT_DATA_DOVI_CONF))) {
             const AVDOVIDecoderConfigurationRecord *cfg = (void *) sd;
             MP_VERBOSE(demuxer, "Found Dolby Vision config record: profile "
                        "%d level %d\n", cfg->dv_profile, cfg->dv_level);
@@ -851,7 +877,7 @@ static void handle_new_stream(demuxer_t *demuxer, int i)
         if (prog)
             sh->program_id = prog->id;
         sh->missing_timestamps = !!(priv->avif_flags & AVFMT_NOTIMESTAMPS);
-        mp_tags_copy_from_av_dictionary(sh->tags, st->metadata);
+        mp_tags_move_from_av_dictionary(sh->tags, &st->metadata);
         demux_add_sh_stream(demuxer, sh);
 
         // Unfortunately, there is no better way to detect PCM codecs, other
@@ -889,7 +915,7 @@ static void update_metadata(demuxer_t *demuxer)
 {
     lavf_priv_t *priv = demuxer->priv;
     if (priv->avfc->event_flags & AVFMT_EVENT_FLAG_METADATA_UPDATED) {
-        mp_tags_copy_from_av_dictionary(demuxer->metadata, priv->avfc->metadata);
+        mp_tags_move_from_av_dictionary(demuxer->metadata, &priv->avfc->metadata);
         priv->avfc->event_flags = 0;
         demux_metadata_changed(demuxer);
     }
@@ -981,12 +1007,6 @@ static int demux_open_lavf(demuxer_t *demuxer, enum demux_check check)
     priv->opts = mp_get_config_group(priv, demuxer->global, &demux_lavf_conf);
     struct demux_lavf_opts *lavfdopts = priv->opts;
 
-    int index_mode;
-    mp_read_option_raw(demuxer->global, "index", &m_option_type_choice,
-                       &index_mode);
-    mp_read_option_raw(demuxer->global, "mf-fps", &m_option_type_double,
-                       &priv->mf_fps);
-
     if (lavf_check_file(demuxer, check) < 0)
         goto fail;
 
@@ -994,7 +1014,7 @@ static int demux_open_lavf(demuxer_t *demuxer, enum demux_check check)
     if (!avfc)
         goto fail;
 
-    if (index_mode != 1)
+    if (demuxer->opts->index_mode != 1)
         avfc->flags |= AVFMT_FLAG_IGNIDX;
 
     if (lavfdopts->probesize) {
@@ -1050,9 +1070,6 @@ static int demux_open_lavf(demuxer_t *demuxer, enum demux_check check)
     }
 
     guess_and_set_vobsub_name(demuxer, &dopts);
-
-    if (priv->format_hack.fix_editlists)
-        av_dict_set(&dopts, "advanced_editlist", "0", 0);
 
     avfc->interrupt_callback = (AVIOInterruptCB){
         .callback = interrupt_cb,
@@ -1127,12 +1144,12 @@ static int demux_open_lavf(demuxer_t *demuxer, enum demux_check check)
         t = av_dict_get(c->metadata, "title", NULL, 0);
         int index = demuxer_add_chapter(demuxer, t ? t->value : "",
                                         c->start * av_q2d(c->time_base), i);
-        mp_tags_copy_from_av_dictionary(demuxer->chapters[index].metadata, c->metadata);
+        mp_tags_move_from_av_dictionary(demuxer->chapters[index].metadata, &c->metadata);
     }
 
     add_new_streams(demuxer);
 
-    mp_tags_copy_from_av_dictionary(demuxer->metadata, avfc->metadata);
+    mp_tags_move_from_av_dictionary(demuxer->metadata, &avfc->metadata);
 
     demuxer->ts_resets_possible =
         priv->avif_flags & (AVFMT_TS_DISCONT | AVFMT_NOTIMESTAMPS);
@@ -1150,25 +1167,25 @@ static int demux_open_lavf(demuxer_t *demuxer, enum demux_check check)
     demuxer->is_network |= priv->format_hack.is_network;
     demuxer->seekable &= !priv->format_hack.no_seek;
 
-    if (priv->avfc->duration > 0) {
-        demuxer->duration = (double)priv->avfc->duration / AV_TIME_BASE;
-    } else {
-        double total_duration = 0;
-        double av_duration = 0;
-        for (int n = 0; n < priv->avfc->nb_streams; n++) {
-            AVStream *st = priv->avfc->streams[n];
-            if (st->duration <= 0)
-                continue;
-            double f_duration = st->duration * av_q2d(st->time_base);
-            total_duration = MPMAX(total_duration, f_duration);
-            if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO ||
-                st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-                av_duration = MPMAX(av_duration, f_duration);
-        }
-        double duration = av_duration > 0 ? av_duration : total_duration;
-        if (duration > 0)
-            demuxer->duration = duration;
+    // We initially prefer track durations over container durations because they
+    // have a higher degree of precision over the container duration which are
+    // only accurate to the 6th decimal place. This is probably a lavf bug.
+    double total_duration = -1;
+    double av_duration = -1;
+    for (int n = 0; n < priv->avfc->nb_streams; n++) {
+        AVStream *st = priv->avfc->streams[n];
+        if (st->duration <= 0)
+            continue;
+        double f_duration = st->duration * av_q2d(st->time_base);
+        total_duration = MPMAX(total_duration, f_duration);
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO ||
+            st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+            av_duration = MPMAX(av_duration, f_duration);
     }
+    double duration = av_duration > 0 ? av_duration : total_duration;
+    if (duration <= 0 && priv->avfc->duration > 0)
+        duration = (double)priv->avfc->duration / AV_TIME_BASE;
+    demuxer->duration = duration;
 
     if (demuxer->duration < 0 && priv->format_hack.no_seek_on_no_duration)
         demuxer->seekable = false;
@@ -1180,7 +1197,7 @@ static int demux_open_lavf(demuxer_t *demuxer, enum demux_check check)
                 "This format is marked by FFmpeg as having no timestamps!\n"
                 "FFmpeg will likely make up its own broken timestamps. For\n"
                 "video streams you can correct this with:\n"
-                "    --no-correct-pts --fps=VALUE\n"
+                "    --no-correct-pts --container-fps-override=VALUE\n"
                 "with VALUE being the real framerate of the stream. You can\n"
                 "expect seeking and buffering estimation to be generally\n"
                 "broken as well.\n");
@@ -1253,8 +1270,6 @@ static bool demux_lavf_read_packet(struct demuxer *demux,
     dp->duration = pkt->duration * av_q2d(st->time_base);
     dp->pos = pkt->pos;
     dp->keyframe = pkt->flags & AV_PKT_FLAG_KEY;
-    if (pkt->flags & AV_PKT_FLAG_DISCARD)
-        MP_ERR(demux, "Edit lists are not correctly supported (FFmpeg issue).\n");
     av_packet_unref(pkt);
 
     if (priv->format_hack.clear_filepos)
@@ -1289,7 +1304,7 @@ static bool demux_lavf_read_packet(struct demuxer *demux,
     if (st->event_flags & AVSTREAM_EVENT_FLAG_METADATA_UPDATED) {
         st->event_flags = 0;
         struct mp_tags *tags = talloc_zero(NULL, struct mp_tags);
-        mp_tags_copy_from_av_dictionary(tags, st->metadata);
+        mp_tags_move_from_av_dictionary(tags, &st->metadata);
         double pts = MP_PTS_OR_DEF(dp->pts, dp->dts);
         demux_stream_tags_changed(demux, stream, tags, pts);
     }

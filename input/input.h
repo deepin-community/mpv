@@ -83,7 +83,8 @@ void mp_input_src_feed_cmd_text(struct mp_input_src *src, char *buf, size_t len)
 void mp_input_put_key(struct input_ctx *ictx, int code);
 
 // Like mp_input_put_key(), but ignore mouse disable option for mouse buttons.
-void mp_input_put_key_artificial(struct input_ctx *ictx, int code);
+// value can be used like with mp_input_put_wheel(), use 1 if not applicable.
+void mp_input_put_key_artificial(struct input_ctx *ictx, int code, double value);
 
 // Like mp_input_put_key(), but process all UTF-8 characters in the given
 // string as key events.
@@ -177,7 +178,11 @@ struct input_ctx *mp_input_init(struct mpv_global *global,
                                 void (*wakeup_cb)(void *ctx),
                                 void *wakeup_ctx);
 
+// Load the configured input.conf files.
 void mp_input_load_config(struct input_ctx *ictx);
+
+// Load a specific input.conf file.
+bool mp_input_load_config_file(struct input_ctx *ictx, char *file);
 
 void mp_input_update_opts(struct input_ctx *ictx);
 

@@ -85,6 +85,7 @@ seekbar
 
     =============   ================================================
     left-click      seek to position
+    mouse wheel     seek forward/backward
     =============   ================================================
 
 time left
@@ -101,6 +102,7 @@ audio and sub
     left-click      cycle audio/sub tracks forward
     right-click     cycle audio/sub tracks backwards
     shift+L-click   show available audio/sub tracks
+    mouse wheel     cycle audio/sub tracks forward/backwards
     =============   ================================================
 
 vol
@@ -209,6 +211,13 @@ Configurable Options
 
     Alpha of the seekable ranges, 0 (opaque) to 255 (fully transparent).
 
+``scrollcontrols``
+    Default: yes
+
+    By default, going up or down with the mouse wheel can trigger certain
+    actions (such as seeking) if the mouse is hovering an OSC element.
+    Set to ``no`` to disable any special mouse wheel behavior.
+
 ``deadzonesize``
     Default: 0.5
 
@@ -298,7 +307,7 @@ Configurable Options
 
     String that supports property expansion that will be displayed as
     OSC title.
-    ASS tags are escaped, and newlines and trailing slashes are stripped.
+    ASS tags are escaped and newlines are converted to spaces.
 
 ``tooltipborder``
     Default: 1
@@ -309,6 +318,13 @@ Configurable Options
     Default: no
 
     Show total time instead of time remaining
+
+``remaining_playtime``
+    Default: yes
+
+    Whether the time-remaining display takes speed into account.
+    ``yes`` - how much playback time remains at the current speed.
+    ``no`` - how much video-time remains.
 
 ``timems``
     Default: no
@@ -383,6 +399,13 @@ Configurable Options
 
     Supports ``left`` and ``right`` which will place the controls on those
     respective sides.
+
+``windowcontrols_title``
+    Default: ${media-title}
+
+    String that supports property expansion that will be displayed as the
+    windowcontrols title.
+    ASS tags are escaped, and newlines and trailing slashes are stripped.
 
 ``greenandgrumpy``
     Default: no

@@ -64,7 +64,7 @@ Ctrl+LEFT and Ctrl+RIGHT
     Seek to the previous/next subtitle. Subject to some restrictions and
     might not always work; see ``sub-seek`` command.
 
-Ctrl+Shift+Left and Ctrl+Shift+Right
+Ctrl+Shift+LEFT and Ctrl+Shift+RIGHT
     Adjust subtitle delay so that the next or previous subtitle is displayed
     now. This is especially useful to sync subtitles to audio.
 
@@ -94,7 +94,7 @@ Shift+Ctrl+BACKSPACE
 ENTER
     Go forward in the playlist.
 
-p / SPACE
+p and SPACE
     Pause (pressing again unpauses).
 
 \.
@@ -144,7 +144,7 @@ w and W
     Decrease/increase pan-and-scan range. The ``e`` key does the same as
     ``W`` currently, but use is discouraged.
 
-o (also P)
+o and P
     Show progression bar, elapsed time and total duration on the OSD.
 
 O
@@ -166,16 +166,16 @@ l
 L
     Toggle infinite looping.
 
-Ctrl + and Ctrl -
+Ctrl++ and Ctrl+-
     Adjust audio delay (A/V sync) by +/- 0.1 seconds.
 
 Shift+g and Shift+f
     Adjust subtitle font size by +/- 10%.
 
 u
-    Switch between applying no style overrides to SSA/ASS subtitles, and
-    overriding them almost completely with the normal subtitle style. See
-    ``--sub-ass-override`` for more info.
+    Switch between applying only ``--sub-ass-*`` overrides (default) to SSA/ASS
+    subtitles, and overriding them almost completely with the normal subtitle
+    style. See ``--sub-ass-override`` for more info.
 
 V
     Toggle subtitle VSFilter aspect compatibility mode. See
@@ -192,7 +192,7 @@ S
     Take a screenshot, without subtitles. (Whether this works depends on VO
     driver support.)
 
-Ctrl s
+Ctrl+s
     Take a screenshot, as the window shows it (with subtitles, OSD, and scaled
     video).
 
@@ -205,38 +205,39 @@ Shift+PGUP and Shift+PGDWN
     Seek backward or forward by 10 minutes. (This used to be mapped to
     PGUP/PGDWN without Shift.)
 
+b
+    Activate/deactivate debanding.
+
 d
-    Activate/deactivate deinterlacer.
+    Cycle the deinterlacing filter.
 
 A
     Cycle aspect ratio override.
 
-Ctrl h
+Ctrl+h
     Toggle hardware video decoding on/off.
 
 Alt+LEFT, Alt+RIGHT, Alt+UP, Alt+DOWN
     Move the video rectangle (panning).
 
-Alt + and Alt -
-    Combining ``Alt`` with the ``+`` or ``-`` keys changes video zoom.
+Alt++ and Alt+-
+    Change video zoom.
 
 Alt+BACKSPACE
     Reset the pan/zoom settings.
 
 F8
-    Show the playlist and the current position in it (useful only if a UI window
-    is used, broken on the terminal).
+    Show the playlist and the current position in it.
 
 F9
-    Show the list of audio and subtitle streams (useful only if a UI window  is
-    used, broken on the terminal).
+    Show the list of audio and subtitle streams.
 
 i and I
     Show/toggle an overlay displaying statistics about the currently playing
     file such as codec, framerate, number of dropped frames and so on. See
     `STATS`_ for more information.
 
-del
+DEL
     Cycle OSC visibility between never / auto (mouse-move) / always
 
 \`
@@ -257,16 +258,16 @@ corresponding adjustment.)
 7 and 8
     Adjust saturation.
 
-Alt+0 (and command+0 on macOS)
+Alt+0 (and Command+0 on macOS)
     Resize video window to half its original size.
 
-Alt+1 (and command+1 on macOS)
+Alt+1 (and Command+1 on macOS)
     Resize video window to its original size.
 
-Alt+2 (and command+2 on macOS)
+Alt+2 (and Command+2 on macOS)
     Resize video window to double its original size.
 
-command + f (macOS only)
+Command + f (macOS only)
     Toggle fullscreen (see also ``--fs``).
 
 (The following keys are valid if you have a keyboard with multimedia keys.)
@@ -280,6 +281,8 @@ STOP
 PREVIOUS and NEXT
     Seek backward/forward 1 minute.
 
+ZOOMIN and ZOOMOUT
+    Change video zoom.
 
 If you miss some older key bindings, look at ``etc/restore-old-bindings.conf``
 in the mpv git repository.
@@ -297,11 +300,28 @@ Forward/Back button
     Skip to next/previous entry in playlist.
 
 Wheel up/down
-    Seek forward/backward 10 seconds.
-
-Wheel left/right
     Decrease/increase volume.
 
+Wheel left/right
+    Seek forward/backward 10 seconds.
+
+Ctrl+Wheel up/down
+    Change video zoom.
+
+Context Menu
+-------------
+
+.. warning::
+
+    This feature is experimental. It may not work with all VOs. A libass based
+    fallback may be implemented in the future.
+
+Context Menu is a menu that pops up on the video window on user interaction
+(mouse right click, etc.).
+
+To use this feature, you need to fill the ``menu-data`` property with menu
+definition data, and add a keybinding to run the ``context-menu`` command,
+which can be done with a user script.
 
 USAGE
 =====
@@ -523,10 +543,8 @@ String list and path list options
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 String lists are separated by ``,``. The strings are not parsed or interpreted
-by the option system itself. However, most
-
-Path or file list options use ``:`` (Unix) or ``;`` (Windows) as separator,
-instead of ``,``.
+by the option system itself. However, most path or file list options use ``:``
+(Unix) or ``;`` (Windows) as separator, instead of ``,``.
 
 They support the following operations:
 
@@ -539,7 +557,6 @@ Suffix        Meaning
 -pre          Prepend 1 or more items (same syntax as -set)
 -clr          Clear the option (remove all items)
 -remove       Delete item if present (does not interpret escapes)
--del          Delete 1 or more items by integer index (deprecated)
 -toggle       Append an item, or remove if if it already exists (no escapes)
 ============= ===============================================
 
@@ -568,7 +585,7 @@ Keys are unique within the list. If an already present key is set, the existing
 key is removed before the new value is appended.
 
 If you want to pass a value without interpreting it for escapes or ``,``, it is
-recommended to use the ``-add`` variant. When using libmpv, prefer using
+recommended to use the ``-append`` variant. When using libmpv, prefer using
 ``MPV_FORMAT_NODE_MAP``; when using a scripting backend or the JSON IPC, use an
 appropriate structured data type.
 
@@ -590,7 +607,6 @@ Suffix        Meaning
 -pre          Prepend 1 or more filters (same syntax as -set)
 -clr          Clear the option (remove all filters)
 -remove       Delete filter if present
--del          Delete 1 or more filters by integer index or filter label (deprecated)
 -toggle       Append a filter, or remove if if it already exists
 -help         Pseudo operation that prints a help text to the terminal
 ============= ===============================================
@@ -627,30 +643,35 @@ user-specific one is ``~/.config/mpv/mpv.conf``. For details and platform
 specifics (in particular Windows paths) see the `FILES`_ section.
 
 User-specific options override system-wide options and options given on the
-command line override either. The syntax of the configuration files is
-``option=value``. Everything after a *#* is considered a comment. Options
-that work without values can be enabled by setting them to *yes* and disabled by
-setting them to *no*. Even suboptions can be specified in this way.
+command line override both. The syntax of the configuration files is
+``option=value``. Everything after a *#* is considered a comment. Options that
+work without values can be enabled by setting them to *yes* and disabled by
+setting them to *no*, and if the value is omitted, *yes* is implied. Even
+suboptions can be specified in this way.
 
 .. admonition:: Example configuration file
 
     ::
 
-        # Use GPU-accelerated video output by default.
-        vo=gpu
-        # Use quotes for text that can contain spaces:
-        term-status-msg="Time: ${time-pos}"
+        # Don't allow new windows to be larger than the screen.
+        autofit-larger=100%x100%
+        # Enable hardware decoding if available, =yes is implied.
+        hwdec
+        # Spaces don't have to be escaped.
+        osd-playing-msg=File: ${filename}
 
-Escaping spaces and special characters
+Escaping special characters
 --------------------------------------
 
-This is done like with command line options. The shell is not involved here,
-but option values still need to be quoted as a whole if it contains certain
-characters like spaces. A config entry can be quoted with ``"``,
-as well as with the fixed-length syntax (``%n%``) mentioned before. This is like
-passing the exact contents of the quoted string as command line option. C-style
-escapes are currently _not_ interpreted on this level, although some options do
-this manually. (This is a mess and should probably be changed at some point.)
+This is done like with command line options. A config entry can be quoted with
+``"``, ``'``, as well as with the fixed-length syntax (``%n%``) mentioned
+before. This is like passing the exact contents of the quoted string as a
+command line option. C-style escapes are currently _not_ interpreted on this
+level, although some options do this manually (this is a mess and should
+probably be changed at some point). The shell is not involved here, so option
+values only need to be quoted to escape ``#`` anywhere in the value, ``"``,
+``'`` or ``%`` at the beginning of the value, and leading and trailing
+whitespace.
 
 Putting Command Line Options into the Configuration File
 --------------------------------------------------------
@@ -664,7 +685,7 @@ Option                  Configuration file entry
 ``--flag``              ``flag``
 ``-opt val``            ``opt=val``
 ``--opt=val``           ``opt=val``
-``-opt "has spaces"``   ``opt="has spaces"``
+``-opt "has spaces"``   ``opt=has spaces``
 ======================= ========================
 
 File-specific Configuration Files
@@ -708,22 +729,24 @@ or at runtime with the ``apply-profile <name>`` command.
         # a profile that can be enabled with --profile=big-cache
         [big-cache]
         cache=yes
-        demuxer-max-bytes=123400KiB
+        demuxer-max-bytes=512MiB
         demuxer-readahead-secs=20
 
-        [slow]
-        profile-desc="some profile name"
-        # reference a builtin profile
-        profile=gpu-hq
-
-        [fast]
-        vo=vdpau
-
-        # using a profile again extends it
-        [slow]
-        framedrop=no
+        [network]
+        profile-desc="profile for content over network"
+        force-window=immediate
         # you can also include other profiles
         profile=big-cache
+
+        [reduce-judder]
+        video-sync=display-resample
+        interpolation=yes
+
+        # using a profile again extends it
+        [network]
+        demuxer-max-back-bytes=512MiB
+        # reference a builtin profile
+        profile=fast
 
 Runtime profiles
 ----------------
@@ -966,7 +989,7 @@ There are three choices for using mpv from other programs or scripts:
        addition, terminal behavior itself may change any time. Compatibility
        cannot be guaranteed.
 
-       Your code should work even if you pass ``--no-terminal``. Do not attempt
+       Your code should work even if you pass ``--terminal=no``. Do not attempt
        to simulate user input by sending terminal control codes to mpv's stdin.
        If you need interactive control, using ``--input-ipc-server`` is
        recommended. This gives you access to the `JSON IPC`_  over unix domain
@@ -1090,7 +1113,8 @@ this with ``--untimed``, but it will likely break, unless the stream has no
 audio, and the input feeds data to the player at a constant rate.
 
 Another common problem is with MJPEG streams. These do not signal the correct
-framerate. Using ``--untimed`` or ``--no-correct-pts --fps=60`` might help.
+framerate. Using ``--untimed`` or ``--correct-pts=no --container-fps-override=60``
+might help.
 
 For livestreams, data can build up due to pausing the stream, due to slightly
 lower playback rate, or "buffering" pauses. If the demuxer cache is enabled,
@@ -1118,13 +1142,13 @@ commands ``quit-watch-later`` (bound to Shift+Q by default) and
 
 The difference between always quitting with a key bound to ``quit-watch-later``
 and using ``--save-position-on-quit`` is that the latter will save the playback
-position even when mpv is closed with a method other than a keybinding, for
-example if you shutdown your system without closing mpv beforehand, unless of
-course mpv is terminated abruptly and doesn't have the time to save (e.g. with
-the KILL Unix signal).
+position even when mpv is closed with a method other than a keybinding, such as
+clicking the close button in the window title bar. However if mpv is terminated
+abruptly and doesn't have the time to save, then the position will not be saved.
+For example, if you shutdown your system without closing mpv beforehand.
 
 mpv also stores options other than the playback position when they have been
-modified after playback began, for example the volume and the fullscreen state,
+modified after playback began, for example the volume and selected audio/subtitles,
 and restores their values the next time the file is played. Which options are
 saved can be configured with the ``--watch-later-options`` option.
 
@@ -1149,8 +1173,8 @@ PROTOCOLS
     either aliases to documented protocols, or are just redirections to
     protocols implemented and documented in FFmpeg.
 
-    ``data:`` is supported in FFmpeg (not in Libav), but needs to be in the
-    format ``data://``. This is done to avoid ambiguity with filenames. You
+    ``data:`` is supported, but needs to be in the format ``data://``.
+    This is done to avoid ambiguity with filenames. You
     can also prefix it with ``lavf://`` or ``ffmpeg://``.
 
 ``ytdl://...``
@@ -1196,9 +1220,20 @@ PROTOCOLS
 
     Digital TV via DVB. (Linux only.)
 
-``mf://[filemask|@listfile]`` ``--mf-...``
+``mf://[@listfile|filemask|glob|printf-format]`` ``--mf-...``
 
     Play a series of images as video.
+
+    If the URL path begins with ``@``, it is interpreted as the path to a file
+    containing a list of image paths separated by newlines. If the URL path
+    contains ``,``, it is interpreted as a list of image paths separated by
+    ``,``. If the URL path does not contain ``%`` and if on POSIX platforms, is
+    interpreted as a glob, and ``*`` is automatically appended if it was not
+    specified. Otherwise, the printf sequences ``%[.][NUM]d``, where ``NUM`` is
+    one, two, or three decimal digits, and ``%%`` and are interpreted. For
+    example, ``mf://image-%d.jpg`` plays files like ``image-1.jpg``,
+    ``image-2.jpg`` and ``image-10.jpg``, provided that there are no big gaps
+    between the files.
 
 ``cdda://[device]`` ``--cdrom-device=PATH`` ``--cdda-...``
 
@@ -1206,7 +1241,7 @@ PROTOCOLS
 
 ``lavf://...``
 
-    Access any FFmpeg/Libav libavformat protocol. Basically, this passed the
+    Access any FFmpeg libavformat protocol. Basically, this passed the
     string after the ``//`` directly to libavformat.
 
 ``av://type:options``
@@ -1354,30 +1389,6 @@ works like in older mpv releases:
     change, and not apply your additional settings, and/or use a different
     profile name.
 
-Linux desktop issues
-====================
-
-This subsection describes common problems on the Linux desktop. None of these
-problems exist on systems like Windows or macOS.
-
-Disabling Screensaver
----------------------
-
-By default, mpv tries to disable the OS screensaver during playback (only if
-a VO using the OS GUI API is active). ``--stop-screensaver=no`` disables this.
-
-A common problem is that Linux desktop environments ignore the standard
-screensaver APIs on which mpv relies. In particular, mpv uses the Screen Saver
-extension (XSS) on X11, and the idle-inhibit protocol on Wayland.
-
-GNOME in particular still ignores the idle-inhibit protocol, and has its own
-D-Bus interfaces for display power management, which mpv does not support.
-
-Before mpv 0.33.0, the X11 backend ran ``xdg-screensaver reset`` in 10 second
-intervals when not paused in order to support screensaver inhibition in these
-environments. This functionality was removed in 0.33.0, but it is possible to
-call the ``xdg-screensaver`` command line program from a user script instead.
-
 
 .. include:: options.rst
 
@@ -1445,7 +1456,7 @@ behavior of mpv.
 ``DISPLAY``
     Standard X11 display name to use.
 
-FFmpeg/Libav:
+FFmpeg:
     This library accesses various environment variables. However, they are not
     centrally documented, and documenting them is not our job. Therefore, this
     list is incomplete.
@@ -1653,7 +1664,9 @@ You can find the exact path by running ``echo %APPDATA%\mpv\mpv.conf`` in cmd.ex
 Other config files (such as ``input.conf``) are in the same directory. See the
 `FILES`_ section above.
 
-The cache directory is located at ``%LOCALAPPDATA%/mpv``.
+The cache directory is located at ``%LOCALAPPDATA%/mpv/cache``.
+
+The watch_later directory is located at ``%LOCALAPPDATA%/mpv/watch_later``.
 
 The environment variable ``$MPV_HOME`` completely overrides these, like on
 UNIX.

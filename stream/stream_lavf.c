@@ -24,6 +24,8 @@
 #include "common/msg.h"
 #include "common/tags.h"
 #include "common/av_common.h"
+#include "demux/demux.h"
+#include "misc/charset_conv.h"
 #include "misc/thread_tools.h"
 #include "stream.h"
 #include "options/m_config.h"
@@ -285,16 +287,16 @@ static int open_f(stream_t *stream)
     }
 
     // Replace "mms://" with "mmsh://", so that most mms:// URLs just work.
-    // Replace "webdav://" with "http://" and "webdavs://" with "https://"
+    // Replace "dav://" or "webdav://" with "http://" and "davs://" or "webdavs://" with "https://"
     bstr b_filename = bstr0(filename);
     if (bstr_eatstart0(&b_filename, "mms://") ||
         bstr_eatstart0(&b_filename, "mmshttp://"))
     {
         filename = talloc_asprintf(temp, "mmsh://%.*s", BSTR_P(b_filename));
-    } else if (bstr_eatstart0(&b_filename, "webdav://"))
+    } else if (bstr_eatstart0(&b_filename, "dav://") || bstr_eatstart0(&b_filename, "webdav://"))
     {
         filename = talloc_asprintf(temp, "http://%.*s", BSTR_P(b_filename));
-    } else if (bstr_eatstart0(&b_filename, "webdavs://"))
+    } else if (bstr_eatstart0(&b_filename, "davs://") || bstr_eatstart0(&b_filename, "webdavs://"))
     {
         filename = talloc_asprintf(temp, "https://%.*s", BSTR_P(b_filename));
     }
@@ -322,7 +324,7 @@ static int open_f(stream_t *stream)
     if (err < 0) {
         if (err == AVERROR_PROTOCOL_NOT_FOUND)
             MP_ERR(stream, "Protocol not found. Make sure"
-                   " ffmpeg/Libav is compiled with networking support.\n");
+                   " FFmpeg is compiled with networking support.\n");
         goto out;
     }
 
@@ -401,7 +403,21 @@ static struct mp_tags *read_icy(stream_t *s)
         packet = bstr_cut(packet, i + head.len);
         int end = bstr_find(packet, bstr0("\';"));
         packet = bstr_splice(packet, 0, end);
+
+        bool allocated = false;
+        struct demux_opts *opts = mp_get_config_group(NULL, s->global, &demux_conf);
+        const char *charset = mp_charset_guess(s, s->log, packet, opts->meta_cp, 0);
+        if (charset && !mp_charset_is_utf8(charset)) {
+            bstr conv = mp_iconv_to_utf8(s->log, packet, charset, 0);
+            if (conv.start && conv.start != packet.start) {
+                allocated = true;
+                packet = conv;
+            }
+        }
         mp_tags_set_bstr(res, bstr0("icy-title"), packet);
+        talloc_free(opts);
+        if (allocated)
+            talloc_free(packet.start);
     }
 
     av_opt_set(avio, "icy_metadata_packet", "-", AV_OPT_SEARCH_CHILDREN);
@@ -418,8 +434,8 @@ const stream_info_t stream_info_ffmpeg = {
   .protocols = (const char *const[]){
      "rtmp", "rtsp", "rtsps", "http", "https", "mms", "mmst", "mmsh", "mmshttp",
      "rtp", "httpproxy", "rtmpe", "rtmps", "rtmpt", "rtmpte", "rtmpts", "srt",
-     "rist", "srtp", "gopher", "gophers", "data", "ipfs", "ipns", "webdav",
-     "webdavs",
+     "rist", "srtp", "gopher", "gophers", "data", "ipfs", "ipns", "dav",
+     "davs", "webdav", "webdavs",
      NULL },
   .can_write = true,
   .stream_origin = STREAM_ORIGIN_NET,
@@ -439,4 +455,3 @@ const stream_info_t stream_info_ffmpeg_unsafe = {
   .stream_origin = STREAM_ORIGIN_UNSAFE,
   .can_write = true,
 };
-

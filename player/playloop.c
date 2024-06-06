@@ -32,7 +32,6 @@
 #include "common/encode.h"
 #include "common/msg.h"
 #include "common/playlist.h"
-#include "common/recorder.h"
 #include "common/stats.h"
 #include "demux/demux.h"
 #include "filters/f_decoder_wrapper.h"
@@ -76,7 +75,7 @@ void mp_set_timeout(struct MPContext *mpctx, double sleeptime)
 {
     if (mpctx->sleeptime > sleeptime) {
         mpctx->sleeptime = sleeptime;
-        int64_t abstime = mp_add_timeout(mp_time_us(), sleeptime);
+        int64_t abstime = mp_time_ns_add(mp_time_ns(), sleeptime);
         mp_dispatch_adjust_timeout(mpctx->dispatch, abstime);
     }
 }
@@ -124,10 +123,10 @@ static void mp_process_input(struct MPContext *mpctx)
 
 double get_relative_time(struct MPContext *mpctx)
 {
-    int64_t new_time = mp_time_us();
+    int64_t new_time = mp_time_ns();
     int64_t delta = new_time - mpctx->last_time;
     mpctx->last_time = new_time;
-    return delta * 0.000001;
+    return delta * 1e-9;
 }
 
 void update_core_idle_state(struct MPContext *mpctx)
@@ -162,8 +161,10 @@ void set_pause_state(struct MPContext *mpctx, bool user_pause)
     if (internal_paused != mpctx->paused) {
         mpctx->paused = internal_paused;
 
-        if (mpctx->ao)
-            ao_set_paused(mpctx->ao, internal_paused);
+        if (mpctx->ao) {
+            bool eof = mpctx->audio_status == STATUS_EOF;
+            ao_set_paused(mpctx->ao, internal_paused, eof);
+        }
 
         if (mpctx->video_out)
             vo_set_paused(mpctx->video_out, internal_paused);
@@ -264,6 +265,13 @@ static void mp_seek(MPContext *mpctx, struct seek_params seek)
     if (!mpctx->demuxer || !seek.type || seek.amount == MP_NOPTS_VALUE)
         return;
 
+    if (seek.type == MPSEEK_CHAPTER) {
+        mpctx->last_chapter_flag = false;
+        seek.type = MPSEEK_ABSOLUTE;
+    } else {
+        mpctx->last_chapter_seek = -2;
+    }
+
     bool hr_seek_very_exact = seek.exact == MPSEEK_VERY_EXACT;
     double current_time = get_playback_time(mpctx);
     if (current_time == MP_NOPTS_VALUE && seek.type == MPSEEK_RELATIVE)
@@ -299,10 +307,6 @@ static void mp_seek(MPContext *mpctx, struct seek_params seek)
         (seek.exact >= MPSEEK_EXACT || opts->hr_seek == 1 ||
          (opts->hr_seek >= 0 && seek.type == MPSEEK_ABSOLUTE) ||
          (opts->hr_seek == 2 && (!mpctx->vo_chain || mpctx->vo_chain->is_sparse)));
-
-    if (seek.type == MPSEEK_FACTOR || seek.amount < 0 ||
-        (seek.type == MPSEEK_ABSOLUTE && seek.amount < mpctx->last_chapter_pts))
-        mpctx->last_chapter_seek = -2;
 
     // Under certain circumstances, prefer SEEK_FACTOR.
     if (seek.type == MPSEEK_FACTOR && !hr_seek &&
@@ -371,8 +375,6 @@ static void mp_seek(MPContext *mpctx, struct seek_params seek)
         clear_audio_output_buffers(mpctx);
 
     reset_playback_state(mpctx);
-    if (mpctx->recorder)
-        mp_recorder_mark_discontinuity(mpctx->recorder);
 
     demux_block_reading(mpctx->demuxer, false);
     for (int t = 0; t < mpctx->num_tracks; t++) {
@@ -417,6 +419,7 @@ static void mp_seek(MPContext *mpctx, struct seek_params seek)
     update_ab_loop_clip(mpctx);
 
     mpctx->current_seek = seek;
+    redraw_subs(mpctx);
 }
 
 // This combines consecutive seek requests.
@@ -446,6 +449,7 @@ void queue_seek(struct MPContext *mpctx, enum seek_type type, double amount,
     case MPSEEK_ABSOLUTE:
     case MPSEEK_FACTOR:
     case MPSEEK_BACKSTEP:
+    case MPSEEK_CHAPTER:
         *seek = (struct seek_params) {
             .type = type,
             .amount = amount,
@@ -583,7 +587,8 @@ int get_current_chapter(struct MPContext *mpctx)
     for (i = 0; i < mpctx->num_chapters; i++)
         if (current_pts < mpctx->chapters[i].pts)
             break;
-    return MPMAX(mpctx->last_chapter_seek, i - 1);
+    return mpctx->last_chapter_flag ?
+        mpctx->last_chapter_seek : MPMAX(mpctx->last_chapter_seek, i - 1);
 }
 
 char *chapter_display_name(struct MPContext *mpctx, int chapter)
@@ -661,6 +666,9 @@ static void handle_osd_redraw(struct MPContext *mpctx)
     if (!want_redraw)
         return;
     vo_redraw(mpctx->video_out);
+    // Even though we just redrew, it may need to be done again for certain
+    // cases of subtitles on an image.
+    redraw_subs(mpctx);
 }
 
 static void clear_underruns(struct MPContext *mpctx)
@@ -793,6 +801,22 @@ static void handle_update_cache(struct MPContext *mpctx)
 int get_cache_buffering_percentage(struct MPContext *mpctx)
 {
     return mpctx->demuxer ? mpctx->cache_buffer : -1;
+}
+
+static void handle_update_subtitles(struct MPContext *mpctx)
+{
+    if (mpctx->video_status == STATUS_EOF) {
+        update_subtitles(mpctx, mpctx->playback_pts);
+        return;
+    }
+
+    for (int n = 0; n < mpctx->num_tracks; n++) {
+        struct track *track = mpctx->tracks[n];
+        if (track->type == STREAM_SUB && !track->demuxer_ready) {
+            update_subtitles(mpctx, mpctx->playback_pts);
+            break;
+        }
+    }
 }
 
 static void handle_cursor_autohide(struct MPContext *mpctx)
@@ -1026,12 +1050,17 @@ int handle_force_window(struct MPContext *mpctx, bool force)
                 break;
             }
         }
+
+        // Use a 16:9 aspect ratio so that fullscreen on a 16:9 screen will not
+        // have vertical margins, which can lead to a different size or position
+        // of subtitles than with 16:9 videos.
         int w = 960;
-        int h = 480;
+        int h = 540;
         struct mp_image_params p = {
             .imgfmt = config_format,
             .w = w,   .h = h,
             .p_w = 1, .p_h = 1,
+            .force_window = true,
         };
         if (vo_reconfig(vo, &p) < 0)
             goto err;
@@ -1083,8 +1112,7 @@ static void handle_playback_time(struct MPContext *mpctx)
     } else if (mpctx->video_status == STATUS_EOF &&
                mpctx->audio_status == STATUS_EOF)
     {
-        double apts =
-            mpctx->ao_chain ? mpctx->ao_chain->last_out_pts : MP_NOPTS_VALUE;
+        double apts = playing_audio_pts(mpctx);
         double vpts = mpctx->video_pts;
         double mpts = MP_PTS_MAX(apts, vpts);
         if (mpts != MP_NOPTS_VALUE)
@@ -1128,6 +1156,7 @@ static void handle_playback_restart(struct MPContext *mpctx)
         mpctx->hrseek_active = false;
         mpctx->restart_complete = true;
         mpctx->current_seek = (struct seek_params){0};
+        run_command_opts(mpctx);
         handle_playback_time(mpctx);
         mp_notify(mpctx, MPV_EVENT_PLAYBACK_RESTART, NULL);
         update_core_idle_state(mpctx);
@@ -1220,8 +1249,8 @@ void run_playloop(struct MPContext *mpctx)
     handle_dummy_ticks(mpctx);
 
     update_osd_msg(mpctx);
-    if (mpctx->video_status == STATUS_EOF)
-        update_subtitles(mpctx, mpctx->playback_pts);
+
+    handle_update_subtitles(mpctx);
 
     handle_each_frame_screenshot(mpctx);
 

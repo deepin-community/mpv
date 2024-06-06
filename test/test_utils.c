@@ -1,8 +1,10 @@
 #include <libavutil/common.h>
 
+#include "common/msg.h"
 #include "options/m_option.h"
 #include "options/path.h"
 #include "osdep/subprocess.h"
+#include "osdep/terminal.h"
 #include "test_utils.h"
 
 #ifdef NDEBUG
@@ -13,6 +15,7 @@ void assert_int_equal_impl(const char *file, int line, int64_t a, int64_t b)
 {
     if (a != b) {
         printf("%s:%d: %"PRId64" != %"PRId64"\n", file, line, a, b);
+        fflush(stdout);
         abort();
     }
 }
@@ -22,6 +25,7 @@ void assert_string_equal_impl(const char *file, int line,
 {
     if (strcmp(a, b) != 0) {
         printf("%s:%d: '%s' != '%s'\n", file, line, a, b);
+        fflush(stdout);
         abort();
     }
 }
@@ -31,6 +35,7 @@ void assert_float_equal_impl(const char *file, int line,
 {
     if (fabs(a - b) > tolerance) {
         printf("%s:%d: %f != %f\n", file, line, a, b);
+        fflush(stdout);
         abort();
     }
 }
@@ -44,6 +49,7 @@ FILE *test_open_out(const char *outdir, const char *name)
     if (!f) {
         printf("Could not open '%s' for writing: %s\n", path,
                mp_strerror(errno));
+        fflush(stdout);
         abort();
     }
     return f;
@@ -71,6 +77,7 @@ void assert_text_files_equal_impl(const char *file, int line,
         if (res.error)
             printf("Note: %s\n", mp_subprocess_err_str(res.error));
         printf("Giving up.\n");
+        fflush(stdout);
         abort();
     }
 }
@@ -94,22 +101,21 @@ void assert_memcmp_impl(const char *file, int line,
     printf("%s:%d: mismatching data:\n", file, line);
     hexdump(a, size);
     hexdump(b, size);
+    fflush(stdout);
     abort();
 }
 
 /* Stubs: see test_utils.h */
-struct mp_log *mp_null_log;
+struct mp_log *const mp_null_log;
 const char *mp_help_text;
 
 void mp_msg(struct mp_log *log, int lev, const char *format, ...) {};
 int mp_msg_find_level(const char *s) {return 0;};
 int mp_msg_level(struct mp_log *log) {return 0;};
-void mp_write_console_ansi(void) {};
+void mp_msg_set_max_level(struct mp_log *log, int lev) {};
+int mp_console_vfprintf(void *wstream, const char *format, va_list args) {return 0;};
+int mp_console_write(void *wstream, bstr str) {return 0;};
+bool mp_check_console(void *handle) { return false; };
 void mp_set_avdict(AVDictionary **dict, char **kv) {};
-
-#ifndef WIN32_TESTS
-void mp_add_timeout(void) {};
-void mp_rel_time_to_timespec(void) {};
-void mp_time_us(void) {};
-void mp_time_us_to_timespec(void) {};
-#endif
+struct mp_log *mp_log_new(void *talloc_ctx, struct mp_log *parent,
+                          const char *name) { return NULL; };

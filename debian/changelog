@@ -1,3 +1,30 @@
+mpv (0.38.0-1) unstable; urgency=medium
+
+  [ Unit 193 ]
+  * New upstream release.
+    - Drop patch applied upstream.
+    - Fix incompatibilities with ffmpeg 7.0 (Closes: #1068660)
+  * Update Standards-Version to 4.7.0.
+
+  [ Sebastian Ramacher ]
+  * debian/rules: Disable Windows and macOS specific features
+  * debian/copyright: Drop removed files
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Wed, 01 May 2024 11:10:27 +0200
+
+mpv (0.37.0-1) unstable; urgency=medium
+
+  * New upstream version 0.37.0
+  * debian/patches: Refresh patches
+  * debian/libmpv2.symbols: Add new symbol
+  * debian/docs: Update list of installed documentation
+  * debian/control:
+    - Add libcdio-dev to BDs
+    - Bump required libplacebo-dev BD
+    - Switch to pkgconf
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Sat, 02 Dec 2023 12:30:21 +0100
+
 mpv (0.36.0-1) unstable; urgency=medium
 
   * New upstream version 0.36.0

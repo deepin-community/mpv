@@ -51,7 +51,7 @@
 // All these are generated from player/javascript/*.js
 static const char *const builtin_files[][3] = {
     {"@/defaults.js",
-#   include "generated/player/javascript/defaults.js.inc"
+#   include "player/javascript/defaults.js.inc"
     },
     {0}
 };
@@ -535,8 +535,7 @@ static int s_load_javascript(struct mp_script_args *args)
     js_Alloc alloc_fn = NULL;
     void *actx = NULL;
 
-    char *mem_report = getenv("MPV_LEAK_REPORT");
-    if (mem_report && strcmp(mem_report, "1") == 0) {
+    if (args->mpctx->opts->js_memory_report) {
         alloc_fn = mp_js_alloc;
         actx = ctx;
     }
@@ -1257,7 +1256,7 @@ static void add_functions(js_State *J, struct script_ctx *ctx)
 
 // main export of this file, used by cplayer to load js scripts
 const struct mp_scripting mp_scripting_js = {
-    .name = "javascript",
+    .name = "js",
     .file_ext = "js",
     .load = s_load_javascript,
 };

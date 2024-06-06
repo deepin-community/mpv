@@ -18,13 +18,14 @@
 #ifndef MPLAYER_X11_COMMON_H
 #define MPLAYER_X11_COMMON_H
 
-#include <stdint.h>
+#include <stdatomic.h>
 #include <stdbool.h>
+#include <stdint.h>
+
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
 #include "common/common.h"
-#include "osdep/atomic.h"
 
 #include "config.h"
 #if !HAVE_GPL
@@ -41,7 +42,8 @@ struct xrandr_display {
     double fps;
     char *name;
     bool overlaps;
-    int atom_id;
+    int atom_id; // offset by location of primary
+    int screen;
 };
 
 struct vo_x11_state {
@@ -59,13 +61,13 @@ struct vo_x11_state {
     int display_is_local;
     int ws_width;
     int ws_height;
-    int dpi_scale;
+    double dpi_scale;
     struct mp_rect screenrc;
     char *window_title;
 
     struct xrandr_display displays[MAX_DISPLAYS];
     int num_displays;
-    int current_icc_screen;
+    int current_screen;
 
     int xrandr_event;
     bool has_mesa;
@@ -112,6 +114,7 @@ struct vo_x11_state {
      * stays the same (even if that size is different from the current
      * window size after the user modified the latter). */
     int old_dw, old_dh;
+    int old_x, old_y;
     /* Video size changed during fullscreen when we couldn't tell the new
      * size to the window manager. Must set window size when turning
      * fullscreen off. */
@@ -135,10 +138,9 @@ struct vo_x11_state {
     Atom dnd_requested_action;
     Window dnd_src_window;
 
-    /* dragging the window */
-    bool win_drag_button1_down;
-
     Atom icc_profile_property;
+
+    XEvent last_button_event;
 };
 
 bool vo_x11_init(struct vo *vo);
@@ -153,7 +155,7 @@ int vo_x11_control(struct vo *vo, int *events, int request, void *arg);
 void vo_x11_present(struct vo *vo);
 void vo_x11_sync_swap(struct vo *vo);
 void vo_x11_wakeup(struct vo *vo);
-void vo_x11_wait_events(struct vo *vo, int64_t until_time_us);
+void vo_x11_wait_events(struct vo *vo, int64_t until_time_ns);
 
 void vo_x11_silence_xlib(int dir);
 

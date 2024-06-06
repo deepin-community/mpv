@@ -48,7 +48,7 @@ struct ra_ctx_fns {
     // These behave exactly like vo_driver.wakeup/wait_events. They are
     // optional.
     void (*wakeup)(struct ra_ctx *ctx);
-    void (*wait_events)(struct ra_ctx *ctx, int64_t until_time_us);
+    void (*wait_events)(struct ra_ctx *ctx, int64_t until_time_ns);
     void (*update_render_opts)(struct ra_ctx *ctx);
 
     // Initialize/destroy the 'struct ra' and possibly the underlying VO backend.
@@ -72,7 +72,7 @@ struct ra_fbo {
 
     // Host system's colorspace that it will be interpreting
     // the frame buffer as.
-    struct mp_colorspace color_space;
+    struct pl_color_space color_space;
 };
 
 struct ra_swapchain_fns {

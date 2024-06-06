@@ -48,7 +48,7 @@ struct f_opts {
     float scale_nominal;
     float ms_stride;
     float ms_search;
-    float percent_overlap;
+    float factor_overlap;
 #define SCALE_TEMPO 1
 #define SCALE_PITCH 2
     int speed_opt;
@@ -229,7 +229,7 @@ static void output_overlap_s16(struct priv *s, void *buf_out,
     }
 }
 
-static void process(struct mp_filter *f)
+static void af_scaletempo_process(struct mp_filter *f)
 {
     struct priv *s = f->priv;
 
@@ -400,7 +400,7 @@ static bool reinit(struct mp_filter *f)
 
     update_speed(s, s->speed);
 
-    int frames_overlap = s->frames_stride * s->opts->percent_overlap;
+    int frames_overlap = s->frames_stride * s->opts->factor_overlap;
     if (frames_overlap <= 0) {
         s->bytes_standing   = s->bytes_stride;
         s->samples_standing = s->bytes_standing / bps;
@@ -511,7 +511,7 @@ static bool reinit(struct mp_filter *f)
     return true;
 }
 
-static bool command(struct mp_filter *f, struct mp_filter_command *cmd)
+static bool af_scaletempo_command(struct mp_filter *f, struct mp_filter_command *cmd)
 {
     struct priv *s = f->priv;
 
@@ -530,7 +530,7 @@ static bool command(struct mp_filter *f, struct mp_filter_command *cmd)
     return false;
 }
 
-static void reset(struct mp_filter *f)
+static void af_scaletempo_reset(struct mp_filter *f)
 {
     struct priv *s = f->priv;
 
@@ -543,7 +543,7 @@ static void reset(struct mp_filter *f)
     TA_FREEP(&s->in);
 }
 
-static void destroy(struct mp_filter *f)
+static void af_scaletempo_destroy(struct mp_filter *f)
 {
     struct priv *s = f->priv;
     free(s->buf_queue);
@@ -558,10 +558,10 @@ static void destroy(struct mp_filter *f)
 static const struct mp_filter_info af_scaletempo_filter = {
     .name = "scaletempo",
     .priv_size = sizeof(struct priv),
-    .process = process,
-    .command = command,
-    .reset = reset,
-    .destroy = destroy,
+    .process = af_scaletempo_process,
+    .command = af_scaletempo_command,
+    .reset = af_scaletempo_reset,
+    .destroy = af_scaletempo_destroy,
 };
 
 static struct mp_filter *af_scaletempo_create(struct mp_filter *parent,
@@ -604,7 +604,7 @@ const struct mp_user_filter_entry af_scaletempo = {
         .priv_size = sizeof(OPT_BASE_STRUCT),
         .priv_defaults = &(const OPT_BASE_STRUCT) {
             .ms_stride = 60,
-            .percent_overlap = .20,
+            .factor_overlap = .20,
             .ms_search = 14,
             .speed_opt = SCALE_TEMPO,
             .scale_nominal = 1.0,
@@ -612,7 +612,7 @@ const struct mp_user_filter_entry af_scaletempo = {
         .options = (const struct m_option[]) {
             {"scale", OPT_FLOAT(scale_nominal), M_RANGE(0.01, DBL_MAX)},
             {"stride", OPT_FLOAT(ms_stride), M_RANGE(0.01, DBL_MAX)},
-            {"overlap", OPT_FLOAT(percent_overlap), M_RANGE(0, 1)},
+            {"overlap", OPT_FLOAT(factor_overlap), M_RANGE(0, 1)},
             {"search", OPT_FLOAT(ms_search), M_RANGE(0, DBL_MAX)},
             {"speed", OPT_CHOICE(speed_opt,
                 {"pitch", SCALE_PITCH},

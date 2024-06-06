@@ -37,12 +37,10 @@
 extern const struct ra_ctx_fns ra_ctx_glx;
 extern const struct ra_ctx_fns ra_ctx_x11_egl;
 extern const struct ra_ctx_fns ra_ctx_drm_egl;
-extern const struct ra_ctx_fns ra_ctx_cocoa;
 extern const struct ra_ctx_fns ra_ctx_wayland_egl;
 extern const struct ra_ctx_fns ra_ctx_wgl;
 extern const struct ra_ctx_fns ra_ctx_angle;
 extern const struct ra_ctx_fns ra_ctx_dxgl;
-extern const struct ra_ctx_fns ra_ctx_rpi;
 extern const struct ra_ctx_fns ra_ctx_android;
 
 /* Vulkan */
@@ -51,6 +49,7 @@ extern const struct ra_ctx_fns ra_ctx_vulkan_win;
 extern const struct ra_ctx_fns ra_ctx_vulkan_xlib;
 extern const struct ra_ctx_fns ra_ctx_vulkan_android;
 extern const struct ra_ctx_fns ra_ctx_vulkan_display;
+extern const struct ra_ctx_fns ra_ctx_vulkan_mac;
 
 /* Direct3D 11 */
 extern const struct ra_ctx_fns ra_ctx_d3d11;
@@ -67,12 +66,6 @@ static const struct ra_ctx_fns *contexts[] = {
 #if HAVE_EGL_ANDROID
     &ra_ctx_android,
 #endif
-#if HAVE_RPI
-    &ra_ctx_rpi,
-#endif
-#if HAVE_GL_COCOA
-    &ra_ctx_cocoa,
-#endif
 #if HAVE_EGL_ANGLE_WIN32
     &ra_ctx_angle,
 #endif
@@ -82,7 +75,7 @@ static const struct ra_ctx_fns *contexts[] = {
 #if HAVE_GL_DXINTEROP
     &ra_ctx_dxgl,
 #endif
-#if HAVE_GL_WAYLAND
+#if HAVE_EGL_WAYLAND
     &ra_ctx_wayland_egl,
 #endif
 #if HAVE_EGL_X11
@@ -113,6 +106,9 @@ static const struct ra_ctx_fns *contexts[] = {
 #if HAVE_VK_KHR_DISPLAY
     &ra_ctx_vulkan_display,
 #endif
+#if HAVE_COCOA && HAVE_SWIFT
+    &ra_ctx_vulkan_mac,
+#endif
 #endif
 
 /* No API contexts: */
@@ -133,8 +129,7 @@ static int ra_ctx_api_help(struct mp_log *log, const struct m_option *opt,
     return M_OPT_EXIT;
 }
 
-static int ra_ctx_validate_api(struct mp_log *log, const struct m_option *opt,
-                               struct bstr name, const char **value)
+static inline OPT_STRING_VALIDATE_FUNC(ra_ctx_validate_api)
 {
     struct bstr param = bstr0(*value);
     if (bstr_equals0(param, "auto"))
@@ -158,8 +153,7 @@ static int ra_ctx_context_help(struct mp_log *log, const struct m_option *opt,
     return M_OPT_EXIT;
 }
 
-static int ra_ctx_validate_context(struct mp_log *log, const struct m_option *opt,
-                                   struct bstr name, const char **value)
+static inline OPT_STRING_VALIDATE_FUNC(ra_ctx_validate_context)
 {
     struct bstr param = bstr0(*value);
     if (bstr_equals0(param, "auto"))
@@ -208,6 +202,7 @@ struct ra_ctx *ra_ctx_create(struct vo *vo, struct ra_ctx_opts opts)
         MP_VERBOSE(ctx, "Initializing GPU context '%s'\n", ctx->fns->name);
         if (contexts[i]->init(ctx)) {
             vo->probing = old_probing;
+            vo->context_name = ctx->fns->name;
             return ctx;
         }
 

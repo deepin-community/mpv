@@ -177,28 +177,6 @@ mp.abort_async_command = function abort_async_command(id) {
         mp._abort_async_command(id);
 }
 
-// shared-script-properties - always an object, even if without properties
-function shared_script_property_set(name, val) {
-    if (arguments.length > 1)
-        return mp.commandv("change-list", "shared-script-properties", "append", "" + name + "=" + val);
-    else
-        return mp.commandv("change-list", "shared-script-properties", "remove", name);
-}
-
-function shared_script_property_get(name) {
-    return mp.get_property_native("shared-script-properties")[name];
-}
-
-function shared_script_property_observe(name, cb) {
-    return mp.observe_property("shared-script-properties", "native",
-        function shared_props_cb(_name, val) { cb(name, val[name]) }
-    );
-}
-
-mp.utils.shared_script_property_set = shared_script_property_set;
-mp.utils.shared_script_property_get = shared_script_property_get;
-mp.utils.shared_script_property_observe = shared_script_property_observe;
-
 // osd-ass
 var next_assid = 1;
 mp.create_osd_overlay = function create_osd_overlay(format) {
@@ -268,10 +246,10 @@ mp.get_osd_margins = function get_osd_margins() {
 // {cb: fn, forced: bool, maybe input: str, repeatable: bool, complex: bool}
 var binds = new_cache();
 
-function dispatch_key_binding(name, state, key_name) {
+function dispatch_key_binding(name, state, key_name, key_text) {
     var cb = binds[name] ? binds[name].cb : false;
     if (cb)  // "script-binding [<script_name>/]<name>" command was invoked
-        cb(state, key_name);
+        cb(state, key_name, key_text);
 }
 
 var binds_tid = 0;  // flush timer id. actual id's are always true-thy
@@ -329,11 +307,12 @@ function add_binding(forced, key, name, fn, opts) {
             fn({event: "press", is_mouse: false});
         });
         var KEY_STATES = { u: "up", d: "down", r: "repeat", p: "press" };
-        key_data.cb = function key_cb(state, key_name) {
+        key_data.cb = function key_cb(state, key_name, key_text) {
             fn({
                 event: KEY_STATES[state[0]] || "unknown",
                 is_mouse: state[1] == "m",
-                key_name: key_name || undefined
+                key_name: key_name || undefined,
+                key_text: key_text || undefined
             });
         }
     } else {
@@ -663,6 +642,56 @@ function read_options(opts, id, on_update, conf_override) {
 }
 
 mp.options = { read_options: read_options };
+
+/**********************************************************************
+*  input
+*********************************************************************/
+mp.input = {
+    get: function(t) {
+        mp.commandv("script-message-to", "console", "get-input", mp.script_name,
+                    JSON.stringify({
+                        prompt: t.prompt,
+                        default_text: t.default_text,
+                        cursor_position: t.cursor_position,
+                        id: t.id,
+                    }));
+
+        mp.register_script_message("input-event", function (type, text, cursor_position) {
+            if (t[type]) {
+                var result = t[type](text, cursor_position);
+
+                if (type == "complete" && result) {
+                    mp.commandv("script-message-to", "console", "complete",
+                                JSON.stringify(result[0]), result[1]);
+                }
+            }
+
+            if (type == "closed") {
+                mp.unregister_script_message("input-event");
+            }
+        })
+
+        return true;
+    },
+    terminate: function () {
+        mp.commandv("script-message-to", "console", "disable");
+    },
+    log: function (message, style, terminal_style) {
+        mp.commandv("script-message-to", "console", "log", JSON.stringify({
+                        text: message,
+                        style: style,
+                        terminal_style: terminal_style,
+                   }));
+    },
+    log_error: function (message) {
+        mp.commandv("script-message-to", "console", "log",
+                    JSON.stringify({ text: message, error: true }));
+    },
+    set_log: function (log) {
+        mp.commandv("script-message-to", "console", "set-log",
+                    JSON.stringify(log));
+    }
+}
 
 /**********************************************************************
  *  various

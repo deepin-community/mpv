@@ -175,6 +175,7 @@ void audio_update_volume(struct MPContext *mpctx)
     float gain = MPMAX(opts->softvol_volume / 100.0, 0);
     gain = pow(gain, 3);
     gain *= compute_replaygain(mpctx);
+    gain *= db_gain(opts->softvol_gain);
     if (opts->softvol_mute == 1)
         gain = 0.0;
 
@@ -202,16 +203,6 @@ static bool has_video_track(struct MPContext *mpctx)
     }
 
     return false;
-}
-
-void audio_update_media_role(struct MPContext *mpctx)
-{
-    if (!mpctx->ao)
-        return;
-
-    enum aocontrol_media_role role = has_video_track(mpctx) ?
-        AOCONTROL_MEDIA_ROLE_MOVIE : AOCONTROL_MEDIA_ROLE_MUSIC;
-    ao_control(mpctx->ao, AOCONTROL_UPDATE_MEDIA_ROLE, &role);
 }
 
 static void ao_chain_reset_state(struct ao_chain *ao_c)
@@ -440,6 +431,9 @@ static int reinit_audio_filters_and_output(struct MPContext *mpctx)
                           opts->audio_output_channels.num_chmaps);
     }
 
+    if (!has_video_track(mpctx))
+        ao_flags |= AO_INIT_MEDIA_ROLE_MUSIC;
+
     mpctx->ao_filter_fmt = out_fmt;
 
     mpctx->ao = ao_init_best(mpctx->global, ao_flags, mp_wakeup_core_cb,
@@ -493,13 +487,12 @@ static int reinit_audio_filters_and_output(struct MPContext *mpctx)
     ao_c->ao_resume_time =
         opts->audio_wait_open > 0 ? mp_time_sec() + opts->audio_wait_open : 0;
 
-    ao_set_paused(mpctx->ao, get_internal_paused(mpctx));
+    bool eof = mpctx->audio_status == STATUS_EOF;
+    ao_set_paused(mpctx->ao, get_internal_paused(mpctx), eof);
 
     ao_chain_set_ao(ao_c, mpctx->ao);
 
     audio_update_volume(mpctx);
-
-    audio_update_media_role(mpctx);
 
     // Almost nonsensical hack to deal with certain format change scenarios.
     if (mpctx->audio_status == STATUS_PLAYING)
@@ -625,7 +618,7 @@ double playing_audio_pts(struct MPContext *mpctx)
     double pts = written_audio_pts(mpctx);
     if (pts == MP_NOPTS_VALUE || !mpctx->ao)
         return pts;
-    return pts - mpctx->audio_speed * ao_get_delay(mpctx->ao);
+    return pts - ao_get_delay(mpctx->ao);
 }
 
 // This garbage is needed for untimed AOs. These consume audio infinitely fast,
@@ -731,7 +724,8 @@ static void ao_process(struct mp_filter *f)
 
         mpctx->shown_aframes += samples;
         double real_samplerate = mp_aframe_get_rate(af) / mpctx->audio_speed;
-        mpctx->delay += samples / real_samplerate;
+        if (mpctx->video_status != STATUS_EOF)
+            mpctx->delay += samples / real_samplerate;
         ao_c->last_out_pts = mp_aframe_end_pts(af);
         update_throttle(mpctx);
 
@@ -835,7 +829,8 @@ void audio_start_ao(struct MPContext *mpctx)
     double pts = MP_NOPTS_VALUE;
     if (!get_sync_pts(mpctx, &pts))
         return;
-    double apts = playing_audio_pts(mpctx); // (basically including mpctx->delay)
+    double apts = written_audio_pts(mpctx);
+    apts -= apts != MP_NOPTS_VALUE ? mpctx->audio_speed * ao_get_delay(mpctx->ao) : 0;
     if (pts != MP_NOPTS_VALUE && apts != MP_NOPTS_VALUE && pts < apts &&
         mpctx->video_status != STATUS_EOF)
     {
@@ -851,6 +846,7 @@ void audio_start_ao(struct MPContext *mpctx)
     }
 
     MP_VERBOSE(mpctx, "starting audio playback\n");
+    ao_c->audio_started = true;
     ao_start(ao_c->ao);
     mpctx->audio_status = STATUS_PLAYING;
     if (ao_c->out_eof) {

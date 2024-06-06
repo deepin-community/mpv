@@ -113,18 +113,22 @@ struct priv_owner {
 static void uninit(struct ra_hwdec *hw)
 {
     struct priv_owner *p = hw->priv;
-    if (p->ctx)
+    if (p->ctx) {
         hwdec_devices_remove(hw->devs, &p->ctx->hwctx);
+        if (p->ctx->hwctx.conversion_config) {
+            AVVAAPIHWConfig *hwconfig = p->ctx->hwctx.conversion_config;
+            vaDestroyConfig(p->ctx->display, hwconfig->config_id);
+            av_freep(&p->ctx->hwctx.conversion_config);
+        }
+    }
     va_destroy(p->ctx);
 }
 
-const static dmabuf_interop_init interop_inits[] = {
+static const dmabuf_interop_init interop_inits[] = {
 #if HAVE_DMABUF_INTEROP_GL
     dmabuf_interop_gl_init,
 #endif
-#if HAVE_DMABUF_INTEROP_PL
     dmabuf_interop_pl_init,
-#endif
 #if HAVE_DMABUF_WAYLAND
     dmabuf_interop_wl_init,
 #endif
@@ -134,6 +138,7 @@ const static dmabuf_interop_init interop_inits[] = {
 static int init(struct ra_hwdec *hw)
 {
     struct priv_owner *p = hw->priv;
+    VAStatus vas;
 
     for (int i = 0; interop_inits[i]; i++) {
         if (interop_inits[i](hw, &p->dmabuf_interop)) {
@@ -171,12 +176,23 @@ static int init(struct ra_hwdec *hw)
         return -1;
     }
 
+    VAConfigID config_id;
+    AVVAAPIHWConfig *hwconfig = NULL;
+    vas = vaCreateConfig(p->display, VAProfileNone, VAEntrypointVideoProc, NULL,
+                         0, &config_id);
+    if (vas == VA_STATUS_SUCCESS) {
+        hwconfig = av_hwdevice_hwconfig_alloc(p->ctx->av_device_ref);
+        hwconfig->config_id = config_id;
+    }
+
     // it's now safe to set the display resource
     ra_add_native_resource(hw->ra_ctx->ra, "VADisplay", p->display);
 
     p->ctx->hwctx.hw_imgfmt = IMGFMT_VAAPI;
     p->ctx->hwctx.supported_formats = p->formats;
     p->ctx->hwctx.driver_name = hw->driver->name;
+    p->ctx->hwctx.conversion_filter_name = "scale_vaapi";
+    p->ctx->hwctx.conversion_config = hwconfig;
     hwdec_devices_add(hw->devs, &p->ctx->hwctx);
     return 0;
 }
@@ -245,10 +261,10 @@ static int mapper_init(struct ra_hwdec_mapper *mapper)
     return 0;
 }
 
-static void close_file_descriptors(VADRMPRIMESurfaceDescriptor desc)
+static void close_file_descriptors(const VADRMPRIMESurfaceDescriptor *desc)
 {
-    for (int i = 0; i < desc.num_objects; i++)
-        close(desc.objects[i].fd);
+    for (int i = 0; i < desc->num_objects; i++)
+        close(desc->objects[i].fd);
 }
 
 static int mapper_map(struct ra_hwdec_mapper *mapper)
@@ -269,7 +285,7 @@ static int mapper_map(struct ra_hwdec_mapper *mapper)
     if (!CHECK_VA_STATUS_LEVEL(mapper, "vaExportSurfaceHandle()",
                                p_owner->probing_formats ? MSGL_DEBUG : MSGL_ERR))
     {
-        close_file_descriptors(desc);
+        close_file_descriptors(&desc);
         goto err;
     }
     vaSyncSurface(display, va_surface_id(mapper->src));

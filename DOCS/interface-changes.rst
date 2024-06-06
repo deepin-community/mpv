@@ -17,15 +17,158 @@ a large part of the user interface and APIs.
 
 Also see compatibility.rst.
 
-This document lists changes to them. New changes are added to the top. Usually,
-only incompatible or important changes are mentioned. New options/commands/etc.
-are not always listed.
+This document lists changes to them. New options/commands/etc. are not always
+listed.
+
+**Never** write to this file directly except when making releases. New changes
+are added in the interface-changes directory instead. See contribute.md for more
+details.
 
 Interface changes
 =================
 
 ::
 
+ --- mpv 0.38.0 ---
+    - add `term-size` property
+    - add the `escape-ass` command
+    - add `>` for fixed precision floating-point property expansion
+    - add `--input-comands` option
+    - change `--pulse-latency-hacks` default to `yes`
+    - add `context-menu` command
+    - add `menu-data` property
+    - add `--vo-tct-buffering` option
+    - add `begin-vo-dragging` command
+    - add `--deinterlace-field-parity` option
+    - add `--volume-gain`, `--volume-gain-min`, and `--volume-gain-max` options
+    - add `current-gpu-context` property
+    - add `--secondary-sub-ass-override` option
+    - add `--input-preprocess-wheel` option
+    - remove shared-script-properties (user-data is a replacement)
+    - add `--secondary-sub-delay`, decouple secondary subtitles from
+      `--sub-delay`
+    - add the `--osd-bar-border-size` option
+    - `--screenshot-avif-pixfmt` no longer defaults to yuv420p
+    - `--screenshot-avif-opts` defaults to lossless screenshot
+    - rename key `MP_KEY_BACK` to `MP_KEY_GO_BACK`
+    - add `--sub-filter-sdh-enclosures` option
+    - added the `mp.input` scripting API to query the user for textual input
+    - add `forced` choice to `subs-with-matching-audio`
+    - remove `--term-remaining-playtime` option
+    - change fallback deinterlace to bwdif
+    - add the command `load-config-file`
+    - add the command `load-input-conf`
+    - remove `--vo=rpi`, `--gpu-context=rpi`, and `--hwdec=mmal`
+    - add `auto` choice to `--deinterlace`
+    - change `--teletext-page` default from 100 to 0 ("subtitle" in lavc)
+    - change `--hidpi-window-scale` default to `no`
+    - add `insert-next`, `insert-next-play`, `insert-at`, and `insert-at-play`
+      actions to `loadfile` and `loadlist` commands
+    - add `index` argument to `loadfile` and `loadlist` commands
+    - move the `options` argument of the `loadfile` command from the third
+      parameter to the fourth (after `index`)
+    - add `--drag-and-drop=insert-next` option
+    - rename `--background` to `--background-color`
+    - remove `--alpha` and reintroduce `--background` option for better control
+      over blending alpha components into specific background types
+    - add `--border-background` option
+    - add `video-target-params` property
+    - add `hdr10plus` sub-parameter to `format` video filter
+    - remove `--focus-on-open` and add replacement `--focus-on`
+    - remove debanding from the high-quality profile
+ --- mpv 0.37.0 ---
+    - `--save-position-on-quit` and its associated commands now store state files
+      in %LOCALAPPDATA% instead of %APPDATA% directory by default on Windows.
+    - change `--subs-with-matching-audio` default from `no` to `yes`
+    - change `--subs-fallback` default from `no` to `default`
+    - add the `--hdr-peak-percentile` option
+    - include `--hdr-peak-percentile` in the `gpu-hq` profile
+    - change `--audiotrack-pcm-float` default from `no` to `yes`
+    - add video-params/aspect-name
+    - change type of `--sub-pos` to float
+    - The remaining time printed in the terminal is now adjusted for speed by default.
+      You can disable this with `--no-term-remaining-playtime`.
+    - add `playlist-path` and `playlist/N/playlist-path` properties
+    - add `--x11-wid-title` option
+    - add `--libplacebo-opts` option
+    - add `--audio-file-exts`, `--cover-art-auto-exts`, and `--sub-auto-exts`
+    - change `slang` default back to NULL
+    - remove special handling of the `auto` value from `--alang/slang/vlang` options
+    - add `--subs-match-os-language` as a replacement for `--slang=auto`
+    - add `always` option to `--subs-fallback-forced`
+    - remove `auto` choice from `--sub-forced-only`
+    - remove `auto-forced-only` property
+    - rename `--sub-forced-only` to `--sub-forced-events-only`
+    - remove `sub-forced-only-cur` property (`--sub-forced-events-only` is a replacement)
+    - remove deprecated `video-aspect` property
+    - add `--video-crop`
+    - add `video-params/crop-[w,h,x,y]`
+    - remove `--tone-mapping-mode`
+    - change `--subs-fallback-forced` so that it works alongside `--slang`
+    - add `--icc-3dlut-size=auto` and make it the default
+    - add `--scale=ewa_lanczos4sharpest`
+    - remove `--scale-wblur`, `--cscale-wblur`, `--dscale-wblur`, `--tscale-wblur`
+    - remove `bcspline` filter (`bicubic` is now the same as `bcspline`)
+    - rename `--cache-dir` and `--cache-unlink-files` to `--demuxer-cache-dir` and
+      `--demuxer-cache-unlink-files`
+    - enable `--correct-downscaling`, `--linear-downscaling`, `--sigmoid-upscaling`
+    - `--cscale` defaults to `--scale` if not defined
+    - change `--tscale` default to `oversample`
+    - change `--dither-depth` to `auto`
+    - deprecate `--profile=gpu-hq`, add `--profile=<fast|high-quality>`
+    - change `--dscale` default to `hermite`
+    - update defaults to `--hdr-peak-decay-rate=20`, `--hdr-scene-threshold-low=1.0`,
+      `--hdr-scene-threshold-high=3.0`
+    - update defaults to `--deband-threshold=48`, `--deband-grain=32`
+    - add `--directory-mode=auto` and make it the default
+    - remove deprecated `--profile=opengl-hq`
+    - remove several legacy fallbacks for old deprecated options (now they will just
+      error out like normal)
+    - remove deprecated `drop-frame-count` and `vo-drop-frame-count` property aliases
+    - remove the ability to write to the `display-fps` property (use `override-display-fps`
+      instead)
+    - writing the current value to playlist-pos will no longer restart playback (use
+      `playlist-play-index` instead)
+    - remove deprecated `--oaoffset`, `--oafirst`, `--ovoffset`, `--ovfirst`,
+      `--demuxer-force-retry-on-eof`, `--fit-border` options
+    - remove deprecated `--record-file` option
+    - remove deprecated `--vf-defaults` and `--af-defaults` options
+    - `--drm-connector` no longer allows selecting the card number (use `--drm-device`
+      instead)
+    - add `--title-bar` option
+    - add `--window-corners` option
+    - rename `--cdrom-device` to `--cdda-device`
+    - remove `--scale-cutoff`, `--cscale-cutoff`, `--dscale-cutoff`, `--tscale-cutoff`
+    - remove `--scaler-lut-size`
+    - deprecate shared-script-properties (user-data is a replacement)
+    - add `--backdrop-type` option
+    - add `--window-affinity` option
+    - `--config-dir` no longer forces cache and state files to also reside in there
+    - deprecate `--demuxer-cue-codepage` in favor of `--metadata-codepage`
+    - change the default of `metadata-codepage` to `auto`
+    - add `playlist-next-playlist` and `playlist-prev-playlist` commands
+    - change `video-codec` to show description or name, not both
+    - deprecate `--cdda-toc-bias` option, offsets are always checked now
+    - disable `--allow-delayed-peak-detect` by default
+    - rename `--fps` to `--container-fps-override`
+    - rename `--override-display-fps` to `--display-fps-override`
+    - rename `--sub-ass-force-style` to `--sub-ass-style-overrides`
+    - alias `--screenshot-directory` to `--screenshot-dir`
+    - alias `--watch-later-directory` to `--watch-later-dir`
+    - rename `--play-dir` to `--play-direction`
+    - `--js-memory-report` is now used for enabling memory reporting for javascript
+      scripts
+    - drop support for `-del` syntax for list options
+    - `--demuxer-hysteresis-secs` now respects `--cache-secs` and/or
+      `--demuxer-readahead-secs` as well
+    - add hdr metadata to `video-params` property
+    - add `--target-gamut`
+    - change the way display names are retrieved on macOS, usage of options and properties
+      `--fs-screen-name`, `--screen-name` and `display-names` needs to be adjusted
+    - remove OpenGL cocoa backend that was deprecated in 0.29
+    - remove `border`, `fullscreen`, `ontop`, `osd-level` and `pause`
+      from default `--watch-later-options`
+    - add `video-*` and `secondary-sub-visibility` to default `--watch-later-options`
  --- mpv 0.36.0 ---
     - add `--target-contrast`
     - Target luminance value is now also applied when ICC profile is used.
@@ -146,7 +289,7 @@ Interface changes
     - names starting with "." in ~/.mpv/scripts/ (or equivalent) are now ignored
     - js modules: ~~/scripts/modules.js/ is no longer used, global paths can be
       set with custom init (see docs), dir-scripts first look at <dir>/modules/
-    - the OSX bundle now logs to "~/Library/Logs/mpv.log" by default
+    - the macOS bundle now logs to "~/Library/Logs/mpv.log" by default
     - deprecate the --cache-secs option (once removed, the cache cannot be
       limited by time anymore)
     - remove deprecated legacy hook API ("hook-add", "hook-ack"). Use either the

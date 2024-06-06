@@ -22,6 +22,7 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <dxgi1_6.h>
 
 #include "video/mp_image.h"
 
@@ -65,9 +66,17 @@ struct d3d11_device_opts {
     char *adapter_name;
 };
 
-bool mp_d3d11_list_or_verify_adapters(struct mp_log *log,
-                                      bstr adapter_name,
-                                      bstr *listing);
+IDXGIAdapter1 *mp_get_dxgi_adapter(struct mp_log *log,
+                                   bstr requested_adapter_name,
+                                   bstr *listing);
+
+bool mp_get_dxgi_output_desc(IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc);
+
+OPT_STRING_VALIDATE_FUNC(mp_dxgi_validate_adapter);
+
+bool mp_dxgi_list_or_verify_adapters(struct mp_log *log,
+                                     bstr adapter_name,
+                                     bstr *listing);
 
 bool mp_d3d11_create_present_device(struct mp_log *log,
                                     struct d3d11_device_opts *opts,
@@ -80,10 +89,10 @@ struct d3d11_swapchain_opts {
     DXGI_FORMAT format;
     DXGI_COLOR_SPACE_TYPE color_space;
 
-    // mp_colorspace mapping of the configured swapchain colorspace
+    // pl_color_space mapping of the configured swapchain colorspace
     // shall be written into this memory location if configuration
     // succeeds. Will be ignored if NULL.
-    struct mp_colorspace *configured_csp;
+    struct pl_color_space *configured_csp;
 
     // Use DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL if possible
     bool flip;

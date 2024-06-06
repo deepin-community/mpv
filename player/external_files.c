@@ -32,82 +32,42 @@
 #include "options/path.h"
 #include "external_files.h"
 
-static const char *const sub_exts[] = {"utf", "utf8", "utf-8", "idx", "sub",
-                                       "srt", "rt", "ssa", "ass", "mks", "vtt",
-                                       "sup", "scc", "smi", "lrc", "pgs",
-                                       NULL};
-
-static const char *const audio_exts[] = {"mp3", "aac", "mka", "dts", "flac",
-                                         "ogg", "m4a", "ac3", "opus", "wav",
-                                         "wv", "eac3", "thd",
-                                         NULL};
-
-static const char *const image_exts[] = {"jpg", "jpeg", "png", "gif", "bmp",
-                                         "webp", "jxl", "tiff", "tif", "avif",
-                                         NULL};
-
 // Stolen from: vlc/-/blob/master/modules/meta_engine/folder.c#L40
 // sorted by priority (descending)
 static const char *const cover_files[] = {
-    "AlbumArt.jpg",
-    "AlbumArt.webp",
-    "AlbumArt.jxl",
-    "AlbumArt.avif",
-    "Album.jpg",
-    "Album.webp",
-    "Album.jxl",
-    "Album.avif",
-    "cover.jpg",
-    "cover.png",
-    "cover.webp",
-    "cover.jxl",
-    "cover.avif",
-    "front.jpg",
-    "front.png",
-    "front.webp",
-    "front.jxl",
-    "front.avif",
-
-    "AlbumArtSmall.jpg",
-    "AlbumArtSmall.webp",
-    "AlbumArtSmall.jxl",
-    "AlbumArtSmall.avif",
-    "Folder.jpg",
-    "Folder.png",
-    "Folder.webp",
-    "Folder.jxl",
-    "Folder.avif",
-    ".folder.png",
-    ".folder.webp",
-    ".folder.jxl",
-    ".folder.avif",
-    "thumb.jpg",
-    "thumb.webp",
-    "thumb.jxl",
-    "thumb.avif",
-
-    "front.bmp",
-    "front.gif",
-    "cover.gif",
+    "AlbumArt",
+    "Album",
+    "cover",
+    "front",
+    "AlbumArtSmall",
+    "Folder",
+    ".folder",
+    "thumb",
     NULL
 };
 
-static bool test_ext_list(bstr ext, const char *const *list)
+// Needed for mp_might_be_subtitle_file
+char **sub_exts;
+
+static bool test_ext_list(bstr ext, char **list)
 {
+    if (!list)
+        goto done;
     for (int n = 0; list[n]; n++) {
         if (bstrcasecmp(bstr0(list[n]), ext) == 0)
             return true;
     }
+done:
     return false;
 }
 
-static int test_ext(bstr ext)
+static int test_ext(MPOpts *opts, bstr ext)
 {
-    if (test_ext_list(ext, sub_exts))
+    if (test_ext_list(ext, opts->sub_auto_exts))
         return STREAM_SUB;
-    if (test_ext_list(ext, audio_exts))
+    if (test_ext_list(ext, opts->audiofile_auto_exts))
         return STREAM_AUDIO;
-    if (test_ext_list(ext, image_exts))
+    if (test_ext_list(ext, opts->coverart_auto_exts))
         return STREAM_VIDEO;
     return -1;
 }
@@ -124,7 +84,12 @@ static int test_cover_filename(bstr fname)
 
 bool mp_might_be_subtitle_file(const char *filename)
 {
-    return test_ext(bstr_get_ext(bstr0(filename))) == STREAM_SUB;
+    return test_ext_list(bstr_get_ext(bstr0(filename)), sub_exts);
+}
+
+void mp_update_subtitle_exts(struct MPOpts *opts)
+{
+    sub_exts = opts->sub_auto_exts;
 }
 
 static int compare_sub_filename(const void *a, const void *b)
@@ -177,6 +142,14 @@ static struct bstr guess_lang_from_filename(struct bstr name, int *fn_start)
     return (struct bstr){name.start + i + 1, n};
 }
 
+char *mp_guess_lang_from_filename(void* ctx, const char *filename)
+{
+    bstr filename_no_ext = bstr_strip_ext(bstr0(filename));
+    int start = 0; // only used in append_dir_subtitles()
+    char *lang = bstrto0(ctx, guess_lang_from_filename(filename_no_ext, &start));
+    return lang;
+}
+
 static void append_dir_subtitles(struct mpv_global *global, struct MPOpts *opts,
                                  struct subfn **slist, int *nsub,
                                  struct bstr path, const char *fname,
@@ -220,7 +193,7 @@ static void append_dir_subtitles(struct mpv_global *global, struct MPOpts *opts,
             talloc_steal(tmpmem2, dename.start);
 
         // check what it is (most likely)
-        int type = test_ext(tmp_fname_ext);
+        int type = test_ext(opts, tmp_fname_ext);
         char **langs = NULL;
         int fuzz = -1;
         switch (type) {
@@ -270,7 +243,7 @@ static void append_dir_subtitles(struct mpv_global *global, struct MPOpts *opts,
             prio |= 2; // contains the movie name
 
         if (type == STREAM_VIDEO && opts->coverart_whitelist && prio == 0)
-            prio = test_cover_filename(dename);
+            prio = test_cover_filename(tmp_fname_trim);
 
         // doesn't contain the movie name
         // don't try in the mplayer subtitle directory
