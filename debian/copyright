@@ -53,9 +53,7 @@ Files:
  libmpv/stream_cb.h
  misc/thread_pool.c
  misc/thread_tools.c
- osdep/semaphore_osx.c
  osdep/win32-console-wrapper.c
- osdep/win32/*
  player/client.c
  player/lua/console.lua
  ta/*

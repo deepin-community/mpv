@@ -187,7 +187,7 @@ static void mapper_unmap(struct ra_hwdec_mapper *mapper)
     AVVkFrame *vkf = p->vkf;
 
     int num_images;
-    for (num_images = 0; (vkf->img[num_images] != NULL); num_images++);
+    for (num_images = 0; (vkf->img[num_images] != VK_NULL_HANDLE); num_images++);
 
     for (int i = 0; (p->tex[i] != NULL); i++) {
         pl_tex *tex = &p->tex[i];
@@ -236,8 +236,18 @@ static int mapper_map(struct ra_hwdec_mapper *mapper)
     const AVVulkanFramesContext *vkfc = hwfc->hwctx;
     AVVkFrame *vkf = (AVVkFrame *) mapper->src->planes[0];
 
+    /*
+     * We need to use the dimensions from the HW Frames Context for the
+     * textures, as the underlying images may be larger than the logical frame
+     * size. This most often happens with 1080p content where the actual frame
+     * height is 1088.
+     */
+    struct mp_image raw_layout;
+    mp_image_setfmt(&raw_layout, p->layout.params.imgfmt);
+    mp_image_set_size(&raw_layout, hwfc->width, hwfc->height);
+
     int num_images;
-    for (num_images = 0; (vkf->img[num_images] != NULL); num_images++);
+    for (num_images = 0; (vkf->img[num_images] != VK_NULL_HANDLE); num_images++);
     const VkFormat *vk_fmt = av_vkfmt_from_pixfmt(hwfc->sw_format);
 
     vkfc->lock_frame(hwfc, vkf);
@@ -269,8 +279,8 @@ static int mapper_map(struct ra_hwdec_mapper *mapper)
 
         *tex = pl_vulkan_wrap(p_owner->gpu, pl_vulkan_wrap_params(
             .image = vkf->img[index],
-            .width = mp_image_plane_w(&p->layout, i),
-            .height = mp_image_plane_h(&p->layout, i),
+            .width = mp_image_plane_w(&raw_layout, i),
+            .height = mp_image_plane_h(&raw_layout, i),
             .format = vk_fmt[i],
             .usage = vkfc->usage,
             .aspect = aspect,

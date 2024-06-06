@@ -32,6 +32,7 @@
 #include <libavfilter/avfilter.h>
 #include <libavfilter/buffersink.h>
 #include <libavfilter/buffersrc.h>
+#include <libplacebo/utils/libav.h>
 
 #include "config.h"
 
@@ -492,6 +493,10 @@ static bool init_pads(struct lavfi *c)
             params->sample_aspect_ratio.den = fmt->params.p_h;
             params->hw_frames_ctx = fmt->hwctx;
             params->frame_rate = av_d2q(fmt->nominal_fps, 1000000);
+#if LIBAVFILTER_VERSION_INT >= AV_VERSION_INT(9, 16, 100)
+            params->color_space = pl_system_to_av(fmt->params.repr.sys);
+            params->color_range = pl_levels_to_av(fmt->params.repr.levels);
+#endif
             filter_name = "buffer";
         } else {
             MP_ASSERT_UNREACHABLE();
@@ -814,7 +819,8 @@ static bool lavfi_command(struct mp_filter *f, struct mp_filter_command *cmd)
 
     switch (cmd->type) {
     case MP_FILTER_COMMAND_TEXT: {
-        return avfilter_graph_send_command(c->graph, "all", cmd->cmd, cmd->arg,
+        return avfilter_graph_send_command(c->graph, cmd->target,
+                                           cmd->cmd, cmd->arg,
                                            &(char){0}, 0, 0) >= 0;
     }
     case MP_FILTER_COMMAND_GET_META: {
@@ -981,9 +987,13 @@ static bool is_usable(const AVFilter *filter, int media_type)
     int nb_inputs  = avfilter_pad_count(filter->inputs),
         nb_outputs = avfilter_pad_count(filter->outputs);
 #endif
-    return nb_inputs == 1 && nb_outputs == 1 &&
-           avfilter_pad_get_type(filter->inputs, 0) == media_type &&
-           avfilter_pad_get_type(filter->outputs, 0) == media_type;
+    bool input_ok = filter->flags & AVFILTER_FLAG_DYNAMIC_INPUTS;
+    bool output_ok = filter->flags & AVFILTER_FLAG_DYNAMIC_OUTPUTS;
+    if (nb_inputs == 1)
+        input_ok = avfilter_pad_get_type(filter->inputs, 0) == media_type;
+    if (nb_outputs == 1)
+        output_ok = avfilter_pad_get_type(filter->outputs, 0) == media_type;
+    return input_ok && output_ok;
 }
 
 bool mp_lavfi_is_usable(const char *name, int media_type)
@@ -1024,7 +1034,11 @@ static const char *get_avopt_type_name(enum AVOptionType type)
     case AV_OPT_TYPE_VIDEO_RATE:        return "fps";
     case AV_OPT_TYPE_DURATION:          return "duration";
     case AV_OPT_TYPE_COLOR:             return "color";
-    case AV_OPT_TYPE_CHANNEL_LAYOUT:    return "channellayout";
+#if LIBAVUTIL_VERSION_MAJOR < 59
+    case AV_OPT_TYPE_CHANNEL_LAYOUT:    return "ch_layout";
+#else
+    case AV_OPT_TYPE_CHLAYOUT:          return "ch_layout";
+#endif
     case AV_OPT_TYPE_BOOL:              return "bool";
     case AV_OPT_TYPE_CONST: // fallthrough
     default:

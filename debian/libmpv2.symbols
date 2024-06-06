@@ -24,6 +24,7 @@ libmpv.so.2 libmpv2 #MINVER#
  mpv_get_property_async@Base 0.4.0
  mpv_get_property_osd_string@Base 0.4.0
  mpv_get_property_string@Base 0.4.0
+ mpv_get_time_ns@Base 0.37.0
  mpv_get_time_us@Base 0.4.0
  mpv_get_wakeup_pipe@Base 0.4.0
  mpv_hook_add@Base 0.29

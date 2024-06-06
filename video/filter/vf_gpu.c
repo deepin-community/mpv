@@ -166,11 +166,13 @@ static struct mp_image *gpu_render_frame(struct mp_filter *f, struct mp_image *i
 
     bool need_reconfig = m_config_cache_update(priv->vo_opts_cache);
 
-    if (!mp_image_params_equal(&priv->img_params, &in->params)) {
-        priv->img_params = in->params;
+    if (!mp_image_params_static_equal(&priv->img_params, &in->params)) {
         gl_video_config(priv->renderer, &in->params);
         need_reconfig = true;
     }
+
+    if (!mp_image_params_equal(&priv->img_params, &in->params))
+        priv->img_params = in->params;
 
     if (need_reconfig) {
         struct mp_rect src, dst;
@@ -212,7 +214,7 @@ static struct mp_image *gpu_render_frame(struct mp_filter *f, struct mp_image *i
 
     // (it doesn't have access to the OSD though)
     int flags = RENDER_FRAME_SUBS | RENDER_FRAME_VF_SUBS;
-    gl_video_render_frame(priv->renderer, &frame, (struct ra_fbo){priv->target},
+    gl_video_render_frame(priv->renderer, &frame, &(struct ra_fbo){priv->target},
                           flags);
 
     res = mp_image_alloc(IMGFMT_RGB0, w, h);

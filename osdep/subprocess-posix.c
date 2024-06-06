@@ -16,7 +16,6 @@
  */
 
 #include <poll.h>
-#include <pthread.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -134,7 +133,7 @@ static pid_t spawn_process(const char *path, struct mp_subprocess_opts *opts,
         as_execvpe(path, opts->exe, opts->args, opts->env ? opts->env : environ);
 
     child_failed:
-        write(p[1], &(char){1}, 1); // shouldn't be able to fail
+        (void)write(p[1], &(char){1}, 1); // shouldn't be able to fail
         _exit(1);
     }
 
@@ -282,7 +281,7 @@ void mp_subprocess2(struct mp_subprocess_opts *opts,
                     if (pid)
                         kill(pid, SIGKILL);
                     killed_by_us = true;
-                    break;
+                    goto break_poll;
                 }
                 struct mp_subprocess_fd *fd = &opts->fds[n];
                 if (fd->on_read) {
@@ -316,6 +315,8 @@ void mp_subprocess2(struct mp_subprocess_opts *opts,
             }
         }
     }
+
+break_poll:
 
     // Note: it can happen that a child process closes the pipe, but does not
     //       terminate yet. In this case, we would have to run waitpid() in

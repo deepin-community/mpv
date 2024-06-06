@@ -24,7 +24,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
-#include <pthread.h>
 
 #include <pulse/pulseaudio.h>
 
@@ -119,7 +118,7 @@ static void stream_request_cb(pa_stream *s, size_t length, void *userdata)
 {
     struct ao *ao = userdata;
     struct priv *priv = ao->priv;
-    ao_wakeup_playthread(ao);
+    ao_wakeup(ao);
     pa_threaded_mainloop_signal(priv->mainloop, 0);
 }
 
@@ -136,7 +135,7 @@ static void underflow_cb(pa_stream *s, void *userdata)
     struct priv *priv = ao->priv;
     priv->playing = false;
     priv->underrun_signalled = true;
-    ao_wakeup_playthread(ao);
+    ao_wakeup(ao);
     pa_threaded_mainloop_signal(priv->mainloop, 0);
 }
 
@@ -805,6 +804,7 @@ const struct ao_driver audio_out_pulse = {
     .priv_size = sizeof(struct priv),
     .priv_defaults = &(const struct priv) {
         .cfg_buffer = 100,
+        .cfg_latency_hacks = true,
     },
     .options = (const struct m_option[]) {
         {"host", OPT_STRING(cfg_host)},

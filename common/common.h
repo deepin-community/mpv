@@ -39,12 +39,16 @@
 #define MPSWAP(type, a, b) \
     do { type SWAP_tmp = b; b = a; a = SWAP_tmp; } while (0)
 #define MP_ARRAY_SIZE(s) (sizeof(s) / sizeof((s)[0]))
+#define MP_DIV_UP(x, y) (((x) + (y) - 1) / (y))
 
 // align must be a power of two (align >= 1), x >= 0
 #define MP_ALIGN_UP(x, align) (((x) + (align) - 1) & ~((align) - 1))
 #define MP_ALIGN_DOWN(x, align) ((x) & ~((align) - 1))
 #define MP_IS_ALIGNED(x, align) (!((x) & ((align) - 1)))
 #define MP_IS_POWER_OF_2(x) ((x) > 0 && !((x) & ((x) - 1)))
+
+// align to non power of two
+#define MP_ALIGN_NPOT(x, align) ((align) ? MP_DIV_UP(x, align) * (align) : (x))
 
 // Return "a", or if that is NOPTS, return "def".
 #define MP_PTS_OR_DEF(a, def) ((a) == MP_NOPTS_VALUE ? (def) : (a))
@@ -95,6 +99,12 @@ extern const char mpv_copyright[];
 char *mp_format_time(double time, bool fractions);
 char *mp_format_time_fmt(const char *fmt, double time);
 
+// Formats a double value to a string with the specified precision.
+// Trailing zeros (and the dot) can be trimmed.
+// Optionally, a plus sign and a percent sign can be added.
+char *mp_format_double(void *talloc_ctx, double val, int precision,
+                       bool plus_sign, bool percent_sign, bool trim);
+
 struct mp_rect {
     int x0, y0;
     int x1, y1;
@@ -106,12 +116,14 @@ struct mp_rect {
 void mp_rect_union(struct mp_rect *rc, const struct mp_rect *src);
 bool mp_rect_intersection(struct mp_rect *rc, const struct mp_rect *rc2);
 bool mp_rect_contains(struct mp_rect *rc, int x, int y);
-bool mp_rect_equals(struct mp_rect *rc1, struct mp_rect *rc2);
+bool mp_rect_equals(const struct mp_rect *rc1, const struct mp_rect *rc2);
 int mp_rect_subtract(const struct mp_rect *rc1, const struct mp_rect *rc2,
                      struct mp_rect res_array[4]);
+void mp_rect_rotate(struct mp_rect *rc, int w, int h, int rotation);
 
 unsigned int mp_log2(uint32_t v);
 uint32_t mp_round_next_power_of_2(uint32_t v);
+int mp_lcm(int x, int y);
 
 int mp_snprintf_cat(char *str, size_t size, const char *format, ...)
     PRINTF_ATTRIBUTE(3, 4);

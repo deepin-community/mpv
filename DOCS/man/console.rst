@@ -11,63 +11,63 @@ Keybindings
 \`
     Show the console.
 
-ESC
+ESC and Ctrl+[
     Hide the console.
 
-ENTER, Ctrl+J and Ctrl+M
+ENTER, Ctrl+j and Ctrl+m
     Run the typed command.
 
 Shift+ENTER
     Type a literal newline character.
 
-LEFT and Ctrl+B
+LEFT and Ctrl+b
     Move the cursor to the previous character.
 
-RIGHT and Ctrl+F
+RIGHT and Ctrl+f
     Move the cursor to the next character.
 
-Ctrl+LEFT and Alt+B
+Ctrl+LEFT and Alt+b
     Move the cursor to the beginning of the current word, or if between words,
     to the beginning of the previous word.
 
-Ctrl+RIGHT and Alt+F
+Ctrl+RIGHT and Alt+f
     Move the cursor to the end of the current word, or if between words, to the
     end of the next word.
 
-HOME and Ctrl+A
+HOME and Ctrl+a
     Move the cursor to the start of the current line.
 
-END and Ctrl+E
+END and Ctrl+e
     Move the cursor to the end of the current line.
 
-BACKSPACE and Ctrl+H
+BACKSPACE and Ctrl+h
     Delete the previous character.
 
-Ctrl+D
+Ctrl+d
     Hide the console if the current line is empty, otherwise delete the next
     character.
 
-Ctrl+BACKSPACE and Ctrl+W
+Ctrl+BACKSPACE and Ctrl+w
     Delete text from the cursor to the beginning of the current word, or if
     between words, to the beginning of the previous word.
 
-Ctrl+DEL and Alt+D
+Ctrl+DEL and Alt+d
     Delete text from the cursor to the end of the current word, or if between
     words, to the end of the next word.
 
-Ctrl+U
+Ctrl+u
     Delete text from the cursor to the beginning of the current line.
 
-Ctrl+K
+Ctrl+k
     Delete text from the cursor to the end of the current line.
 
-Ctrl+C
+Ctrl+c
     Clear the current line.
 
-UP and Ctrl+P
+UP and Ctrl+p
     Move back in the command history.
 
-DOWN and Ctrl+N
+DOWN and Ctrl+n
     Move forward in the command history.
 
 PGUP
@@ -79,16 +79,20 @@ PGDN
 INSERT
     Toggle insert mode.
 
-Ctrl+V
+Ctrl+v
     Paste text (uses the clipboard on X11 and Wayland).
 
 Shift+INSERT
     Paste text (uses the primary selection on X11 and Wayland).
 
-TAB and Ctrl+I
-    Complete the command or property name at the cursor.
+TAB and Ctrl+i
+    Complete the text at the cursor. The first press inserts the longest common
+    prefix of the completions, and subsequent presses cycle through them.
 
-Ctrl+L
+Shift+TAB
+    Cycle through the completions backwards.
+
+Ctrl+l
     Clear all log messages from the console.
 
 Commands
@@ -99,9 +103,13 @@ Commands
     specifying the initial cursor position as a positive integer starting from
     1.
 
-    .. admonition:: Example for input.conf
+    .. admonition:: Examples for input.conf
 
-        ``% script-message-to console type "seek  absolute-percent" 6``
+        ``% script-message-to console type "seek  absolute-percent; keypress ESC" 6``
+            Enter a percent position to seek to and close the console.
+
+        ``Ctrl+o script-message-to console type "loadfile ''; keypress ESC" 11``
+            Enter a file or URL to play. Tab completes paths in the filesystem.
 
 Known issues
 ------------
@@ -135,8 +143,9 @@ Configurable Options
 ``font``
     Default: unset (picks a hardcoded font depending on detected platform)
 
-    Set the font used for the REPL and the console. This probably doesn't
-    have to be a monospaced font.
+    Set the font used for the REPL and the console.
+    This has to be a monospaced font for the completion suggestions to be
+    aligned correctly.
 
 ``font_size``
     Default: 16
@@ -149,7 +158,20 @@ Configurable Options
 
     Set the font border size used for the REPL and the console.
 
+``case_sensitive``
+    Default: no on Windows, yes on other platforms.
+
+    Whether Tab completion is case sensitive. Only works with ASCII characters.
+
 ``history_dedup``
     Default: true
 
     Remove duplicate entries in history as to only keep the latest one.
+    multiplied by "scale."
+
+``font_hw_ratio``
+    Default: auto
+
+    The ratio of font height to font width.
+    Adjusts table width of completion suggestions.
+    Values in the range 1.8..2.5 make sense for common monospace fonts.

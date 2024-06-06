@@ -27,10 +27,6 @@
 #include "context.h"
 #include "ra_d3d11.h"
 
-static int d3d11_validate_adapter(struct mp_log *log,
-                                  const struct m_option *opt,
-                                  struct bstr name, const char **value);
-
 struct d3d11_opts {
     int feature_level;
     int warp;
@@ -62,7 +58,7 @@ const struct m_sub_options d3d11_conf = {
         {"d3d11-flip", OPT_BOOL(flip)},
         {"d3d11-sync-interval", OPT_INT(sync_interval), M_RANGE(0, 4)},
         {"d3d11-adapter", OPT_STRING_VALIDATE(adapter_name,
-                                              d3d11_validate_adapter)},
+                                              mp_dxgi_validate_adapter)},
         {"d3d11-output-format", OPT_CHOICE(output_format,
             {"auto",     DXGI_FORMAT_UNKNOWN},
             {"rgba8",    DXGI_FORMAT_R8G8B8A8_UNORM},
@@ -100,45 +96,14 @@ struct priv {
     struct ra_tex *backbuffer;
     ID3D11Device *device;
     IDXGISwapChain *swapchain;
-    struct mp_colorspace swapchain_csp;
+    struct pl_color_space swapchain_csp;
 
     int64_t perf_freq;
-    unsigned last_sync_refresh_count;
-    int64_t last_sync_qpc_time;
+    unsigned sync_refresh_count;
+    int64_t sync_qpc_time;
     int64_t vsync_duration_qpc;
     int64_t last_submit_qpc;
 };
-
-static int d3d11_validate_adapter(struct mp_log *log,
-                                  const struct m_option *opt,
-                                  struct bstr name, const char **value)
-{
-    struct bstr param = bstr0(*value);
-    bool help = bstr_equals0(param, "help");
-    bool adapter_matched = false;
-    struct bstr listing = { 0 };
-
-    if (bstr_equals0(param, "")) {
-        return 0;
-    }
-
-    adapter_matched = mp_d3d11_list_or_verify_adapters(log,
-                                                       help ? bstr0(NULL) : param,
-                                                       help ? &listing : NULL);
-
-    if (help) {
-        mp_info(log, "Available D3D11 adapters:\n%.*s",
-                BSTR_P(listing));
-        talloc_free(listing.start);
-        return M_OPT_EXIT;
-    }
-
-    if (!adapter_matched) {
-        mp_err(log, "No adapter matching '%.*s'!\n", BSTR_P(param));
-    }
-
-    return adapter_matched ? 0 : M_OPT_INVALID;
-}
 
 static struct ra_tex *get_backbuffer(struct ra_ctx *ctx)
 {
@@ -189,6 +154,11 @@ static bool d3d11_reconfig(struct ra_ctx *ctx)
 static int d3d11_color_depth(struct ra_swapchain *sw)
 {
     struct priv *p = sw->priv;
+
+    DXGI_OUTPUT_DESC1 desc1;
+    if (mp_get_dxgi_output_desc(p->swapchain, &desc1))
+        return desc1.BitsPerColor;
+
     DXGI_SWAP_CHAIN_DESC desc;
 
     HRESULT hr = IDXGISwapChain_GetDesc(p->swapchain, &desc);
@@ -237,22 +207,22 @@ static bool d3d11_submit_frame(struct ra_swapchain *sw,
     return true;
 }
 
-static int64_t qpc_to_us(struct ra_swapchain *sw, int64_t qpc)
+static int64_t qpc_to_ns(struct ra_swapchain *sw, int64_t qpc)
 {
     struct priv *p = sw->priv;
 
-    // Convert QPC units (1/perf_freq seconds) to microseconds. This will work
+    // Convert QPC units (1/perf_freq seconds) to nanoseconds. This will work
     // without overflow because the QPC value is guaranteed not to roll-over
     // within 100 years, so perf_freq must be less than 2.9*10^9.
-    return qpc / p->perf_freq * 1000000 +
-        qpc % p->perf_freq * 1000000 / p->perf_freq;
+    return qpc / p->perf_freq * INT64_C(1000000000) +
+        qpc % p->perf_freq * INT64_C(1000000000) / p->perf_freq;
 }
 
-static int64_t qpc_us_now(struct ra_swapchain *sw)
+static int64_t qpc_ns_now(struct ra_swapchain *sw)
 {
     LARGE_INTEGER perf_count;
     QueryPerformanceCounter(&perf_count);
-    return qpc_to_us(sw, perf_count.QuadPart);
+    return qpc_to_ns(sw, perf_count.QuadPart);
 }
 
 static void d3d11_swap_buffers(struct ra_swapchain *sw)
@@ -303,34 +273,39 @@ static void d3d11_get_vsync(struct ra_swapchain *sw, struct vo_vsync_info *info)
     DXGI_FRAME_STATISTICS stats;
     hr = IDXGISwapChain_GetFrameStatistics(p->swapchain, &stats);
     if (hr == DXGI_ERROR_FRAME_STATISTICS_DISJOINT) {
-        p->last_sync_refresh_count = 0;
-        p->last_sync_qpc_time = 0;
+        p->sync_refresh_count = 0;
+        p->sync_qpc_time = 0;
     }
     if (FAILED(hr))
         return;
 
+    info->last_queue_display_time = 0;
+    info->vsync_duration = 0;
     // Detecting skipped vsyncs is possible but not supported yet
-    info->skipped_vsyncs = 0;
+    info->skipped_vsyncs = -1;
 
-    // Get the number of physical vsyncs that have passed since the last call.
+    // Get the number of physical vsyncs that have passed since the start of the
+    // playback or disjoint event.
     // Check for 0 here, since sometimes GetFrameStatistics returns S_OK but
     // with 0s in some (all?) members of DXGI_FRAME_STATISTICS.
     unsigned src_passed = 0;
-    if (stats.SyncRefreshCount && p->last_sync_refresh_count)
-        src_passed = stats.SyncRefreshCount - p->last_sync_refresh_count;
-    p->last_sync_refresh_count = stats.SyncRefreshCount;
+    if (stats.SyncRefreshCount && p->sync_refresh_count)
+        src_passed = stats.SyncRefreshCount - p->sync_refresh_count;
+    if (p->sync_refresh_count == 0)
+        p->sync_refresh_count = stats.SyncRefreshCount;
 
     // Get the elapsed time passed between the above vsyncs
     unsigned sqt_passed = 0;
-    if (stats.SyncQPCTime.QuadPart && p->last_sync_qpc_time)
-        sqt_passed = stats.SyncQPCTime.QuadPart - p->last_sync_qpc_time;
-    p->last_sync_qpc_time = stats.SyncQPCTime.QuadPart;
+    if (stats.SyncQPCTime.QuadPart && p->sync_qpc_time)
+        sqt_passed = stats.SyncQPCTime.QuadPart - p->sync_qpc_time;
+    if (p->sync_qpc_time == 0)
+        p->sync_qpc_time = stats.SyncQPCTime.QuadPart;
 
     // If any vsyncs have passed, estimate the physical frame rate
     if (src_passed && sqt_passed)
         p->vsync_duration_qpc = sqt_passed / src_passed;
     if (p->vsync_duration_qpc)
-        info->vsync_duration = qpc_to_us(sw, p->vsync_duration_qpc);
+        info->vsync_duration = qpc_to_ns(sw, p->vsync_duration_qpc);
 
     // If the physical frame rate is known and the other members of
     // DXGI_FRAME_STATISTICS are non-0, estimate the timing of the next frame
@@ -353,8 +328,8 @@ static void d3d11_get_vsync(struct ra_swapchain *sw, struct vo_vsync_info *info)
         // Only set the estimated display time if it's after the last submission
         // time. It could be before if mpv skips a lot of frames.
         if (last_queue_display_time_qpc >= p->last_submit_qpc) {
-            info->last_queue_display_time = mp_time_us() +
-                (qpc_to_us(sw, last_queue_display_time_qpc) - qpc_us_now(sw));
+            info->last_queue_display_time = mp_time_ns() +
+                (qpc_to_ns(sw, last_queue_display_time_qpc) - qpc_ns_now(sw));
         }
     }
 }
@@ -509,6 +484,9 @@ static bool d3d11_init(struct ra_ctx *ctx)
     if (!vo_w32_init(ctx->vo))
         goto error;
 
+    if (ctx->opts.want_alpha)
+        vo_w32_set_transparency(ctx->vo, ctx->opts.want_alpha);
+
     UINT usage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
     if (ID3D11Device_GetFeatureLevel(p->device) >= D3D_FEATURE_LEVEL_11_0 &&
         p->opts->output_format != DXGI_FORMAT_B8G8R8A8_UNORM)
@@ -539,6 +517,11 @@ error:
     return false;
 }
 
+static void d3d11_update_render_opts(struct ra_ctx *ctx)
+{
+    vo_w32_set_transparency(ctx->vo, ctx->opts.want_alpha);
+}
+
 IDXGISwapChain *ra_d3d11_ctx_get_swapchain(struct ra_ctx *ra)
 {
     if (ra->swapchain->fns != &d3d11_swapchain)
@@ -551,11 +534,22 @@ IDXGISwapChain *ra_d3d11_ctx_get_swapchain(struct ra_ctx *ra)
     return p->swapchain;
 }
 
+bool ra_d3d11_ctx_prefer_8bit_output_format(struct ra_ctx *ra)
+{
+    if (ra->swapchain->fns != &d3d11_swapchain)
+        return false;
+
+    struct priv *p = ra->priv;
+
+    return p->opts->output_format == DXGI_FORMAT_R8G8B8A8_UNORM;
+}
+
 const struct ra_ctx_fns ra_ctx_d3d11 = {
-    .type     = "d3d11",
-    .name     = "d3d11",
-    .reconfig = d3d11_reconfig,
-    .control  = d3d11_control,
-    .init     = d3d11_init,
-    .uninit   = d3d11_uninit,
+    .type               = "d3d11",
+    .name               = "d3d11",
+    .reconfig           = d3d11_reconfig,
+    .control            = d3d11_control,
+    .update_render_opts = d3d11_update_render_opts,
+    .init               = d3d11_init,
+    .uninit             = d3d11_uninit,
 };

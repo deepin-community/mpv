@@ -20,8 +20,10 @@
 #ifndef MP_AO_WASAPI_H_
 #define MP_AO_WASAPI_H_
 
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <stdbool.h>
+
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
@@ -29,7 +31,6 @@
 #include <endpointvolume.h>
 
 #include "common/msg.h"
-#include "osdep/atomic.h"
 #include "osdep/windows_utils.h"
 #include "internal.h"
 #include "ao.h"
@@ -47,9 +48,12 @@ void wasapi_change_uninit(struct ao* ao);
 
 enum wasapi_thread_state {
     WASAPI_THREAD_FEED = 0,
+    WASAPI_THREAD_DISPATCH,
     WASAPI_THREAD_RESUME,
     WASAPI_THREAD_RESET,
-    WASAPI_THREAD_SHUTDOWN
+    WASAPI_THREAD_SHUTDOWN,
+    WASAPI_THREAD_PAUSE,
+    WASAPI_THREAD_UNPAUSE,
 };
 
 typedef struct wasapi_state {

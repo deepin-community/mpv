@@ -85,6 +85,18 @@ Configurable Options
     respective duration. This can result in overlapping text when multiple
     scripts decide to print text at the same time.
 
+``term_width_limit``
+    Default: -1
+
+    Sets the terminal width.
+    A value of 0 means the width is infinite, -1 means it's automatic.
+
+``term_height_limit``
+    Default: -1
+
+    Sets the terminal height.
+    A value of 0 means the height is infinite, -1 means it's automatic.
+
 ``plot_perfdata``
     Default: yes
 
@@ -96,6 +108,11 @@ Configurable Options
     Default: yes
 
     Show graphs for vsync and jitter values (page 1). Only when toggled.
+
+``plot_tonemapping_lut``
+    Default: no
+
+    Enable tone-mapping LUT visualization automatically. Only when toggled.
 
 ``flush_graph_data``
     Default: yes
@@ -220,8 +237,8 @@ are missing.
 Memory usage is approximate and does not reflect internal fragmentation.
 
 JS scripts memory reporting is disabled by default because collecting the data
-at the JS side has an overhead. It can be enabled by exporting the env var
-``MPV_LEAK_REPORT=1`` before starting mpv, and will increase JS memory usage.
+at the JS side has an overhead and will increase memory usage. It can be
+enabled by setting the ``--js-memory-report`` option before starting mpv.
 
 If entries have ``/time`` and ``/cpu`` variants, the former gives the real time
 (monotonic clock), while the latter the thread CPU time (only if the

@@ -112,7 +112,7 @@ static void term_osd_update_title(struct MPContext *mpctx)
 
 void term_osd_set_subs(struct MPContext *mpctx, const char *text)
 {
-    if (mpctx->video_out || !text || !mpctx->opts->subs_rend->sub_visibility)
+    if (mpctx->video_out || !text || !mpctx->opts->subs_shared->sub_visibility[0])
         text = ""; // disable
     if (strcmp(mpctx->term_osd_subs ? mpctx->term_osd_subs : "", text) == 0)
         return;
@@ -134,11 +134,6 @@ static void term_osd_set_status_lazy(struct MPContext *mpctx, const char *text)
 {
     talloc_free(mpctx->term_osd_status);
     mpctx->term_osd_status = talloc_strdup(mpctx, text);
-
-    int w = 80, h = 24;
-    terminal_get_size(&w, &h);
-    if (strlen(mpctx->term_osd_status) > w && !strchr(mpctx->term_osd_status, '\n'))
-        mpctx->term_osd_status[w] = '\0';
 }
 
 static void add_term_osd_bar(struct MPContext *mpctx, char **line, int width)
@@ -281,13 +276,10 @@ static void term_osd_print_status_lazy(struct MPContext *mpctx)
     if (!opts->use_terminal)
         return;
 
-    if (opts->quiet || !mpctx->playback_initialized ||
-        !mpctx->playing_msg_shown || mpctx->stop_play)
+    if (opts->quiet || !mpctx->playback_initialized || !mpctx->playing_msg_shown)
     {
-        if (!mpctx->playing || mpctx->stop_play) {
-            mp_msg_flush_status_line(mpctx->log);
+        if (!mpctx->playing)
             term_osd_set_status_lazy(mpctx, "");
-        }
         return;
     }
 

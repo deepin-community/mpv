@@ -29,10 +29,11 @@
 #include <drm_fourcc.h>
 
 #include "libmpv/render_gl.h"
-#include "video/out/drm_atomic.h"
-#include "video/out/drm_common.h"
 #include "common/common.h"
 #include "osdep/timer.h"
+#include "video/out/drm_atomic.h"
+#include "video/out/drm_common.h"
+#include "video/out/present_sync.h"
 
 #include "egl_helpers.h"
 #include "common.h"
@@ -48,7 +49,6 @@
 
 struct gbm_frame {
     struct gbm_bo *bo;
-    struct drm_vsync_tuple vsync;
 };
 
 struct gbm {
@@ -322,26 +322,16 @@ static void queue_flip(struct ra_ctx *ctx, struct gbm_frame *frame)
 
     update_framebuffer_from_bo(ctx, frame->bo);
 
-    // Alloc and fill the data struct for the page flip callback
-    struct drm_pflip_cb_closure *data = talloc(ctx, struct drm_pflip_cb_closure);
-    data->frame_vsync = &frame->vsync;
-    data->vsync = &drm->vsync;
-    data->vsync_info = &drm->vsync_info;
-    data->waiting_for_flip = &drm->waiting_for_flip;
-    data->log = drm->log;
-
     struct drm_atomic_context *atomic_ctx = drm->atomic_context;
     drm_object_set_property(atomic_ctx->request, atomic_ctx->draw_plane, "FB_ID", drm->fb->id);
     drm_object_set_property(atomic_ctx->request, atomic_ctx->draw_plane, "CRTC_ID", atomic_ctx->crtc->id);
     drm_object_set_property(atomic_ctx->request, atomic_ctx->draw_plane, "ZPOS", 1);
 
     int ret = drmModeAtomicCommit(drm->fd, atomic_ctx->request,
-                                  DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT, data);
+                                  DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT, drm);
 
-    if (ret) {
+    if (ret)
         MP_WARN(ctx->vo, "Failed to commit atomic request: %s\n", mp_strerror(ret));
-        talloc_free(data);
-    }
     drm->waiting_for_flip = !ret;
 
     drmModeAtomicFree(atomic_ctx->request);
@@ -351,12 +341,9 @@ static void queue_flip(struct ra_ctx *ctx, struct gbm_frame *frame)
 static void enqueue_bo(struct ra_ctx *ctx, struct gbm_bo *bo)
 {
     struct priv *p = ctx->priv;
-    struct vo_drm_state *drm = ctx->vo->drm;
 
-    drm->vsync.sbc++;
     struct gbm_frame *new_frame = talloc(p, struct gbm_frame);
     new_frame->bo = bo;
-    new_frame->vsync = drm->vsync;
     MP_TARRAY_APPEND(p, p->gbm.bo_queue, p->gbm.num_bos, new_frame);
 }
 
@@ -485,8 +472,8 @@ static void drm_egl_uninit(struct ra_ctx *ctx)
         drmModeAtomicFree(atomic_ctx->request);
     }
 
-    vo_drm_uninit(ctx->vo);
     ra_gl_ctx_uninit(ctx);
+    vo_drm_uninit(ctx->vo);
 
     if (p) {
         // According to GBM documentation all BO:s must be released
@@ -497,15 +484,17 @@ static void drm_egl_uninit(struct ra_ctx *ctx)
 
         eglMakeCurrent(p->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE,
                        EGL_NO_CONTEXT);
-        eglDestroyContext(p->egl.display, p->egl.context);
-        eglDestroySurface(p->egl.display, p->egl.surface);
-        gbm_surface_destroy(p->gbm.surface);
+        if (p->egl.display != EGL_NO_DISPLAY) {
+            eglDestroySurface(p->egl.display, p->egl.surface);
+            eglDestroyContext(p->egl.display, p->egl.context);
+        }
+        if (p->gbm.surface)
+            gbm_surface_destroy(p->gbm.surface);
         eglTerminate(p->egl.display);
         gbm_device_destroy(p->gbm.device);
-        p->egl.context = EGL_NO_CONTEXT;
-        eglDestroyContext(p->egl.display, p->egl.context);
 
-        close(p->drm_params.render_fd);
+        if (p->drm_params.render_fd != -1)
+            close(p->drm_params.render_fd);
     }
 }
 
@@ -588,7 +577,8 @@ static bool probe_gbm_modifiers(struct ra_ctx *ctx)
 
 static void drm_egl_get_vsync(struct ra_ctx *ctx, struct vo_vsync_info *info)
 {
-    vo_drm_get_vsync(ctx->vo, info);
+    struct vo_drm_state *drm = ctx->vo->drm;
+    present_sync_get_info(drm->present, info);
 }
 
 static bool drm_egl_init(struct ra_ctx *ctx)
@@ -626,6 +616,10 @@ static bool drm_egl_init(struct ra_ctx *ctx)
         xrgb_format = GBM_FORMAT_XBGR8888;
         break;
     default:
+        if (drm->opts->drm_format != DRM_OPTS_FORMAT_XRGB8888) {
+            MP_VERBOSE(ctx->vo, "Requested format not supported by context, "
+                       "falling back to xrgb8888\n");
+        }
         argb_format = GBM_FORMAT_ARGB8888;
         xrgb_format = GBM_FORMAT_XRGB8888;
         break;
@@ -691,13 +685,12 @@ static bool drm_egl_init(struct ra_ctx *ctx)
         MP_VERBOSE(ctx, "Opening render node \"%s\"\n", rendernode_path);
         p->drm_params.render_fd = open(rendernode_path, O_RDWR | O_CLOEXEC);
         if (p->drm_params.render_fd == -1) {
-            MP_WARN(ctx, "Cannot open render node \"%s\": %s. VAAPI hwdec will be disabled\n",
-                    rendernode_path, mp_strerror(errno));
+            MP_WARN(ctx, "Cannot open render node: %s\n", mp_strerror(errno));
         }
         free(rendernode_path);
     } else {
         p->drm_params.render_fd = -1;
-        MP_VERBOSE(ctx, "Could not find path to render node. VAAPI hwdec will be disabled\n");
+        MP_VERBOSE(ctx, "Could not find path to render node.\n");
     }
 
     struct ra_gl_ctx_params params = {
@@ -733,9 +726,9 @@ static int drm_egl_control(struct ra_ctx *ctx, int *events, int request,
     return ret;
 }
 
-static void drm_egl_wait_events(struct ra_ctx *ctx, int64_t until_time_us)
+static void drm_egl_wait_events(struct ra_ctx *ctx, int64_t until_time_ns)
 {
-    vo_drm_wait_events(ctx->vo, until_time_us);
+    vo_drm_wait_events(ctx->vo, until_time_ns);
 }
 
 static void drm_egl_wakeup(struct ra_ctx *ctx)

@@ -18,7 +18,6 @@
 #include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <assert.h>
 #include <stdbool.h>
 
@@ -35,6 +34,7 @@
 #include "common/msg.h"
 #include "options/m_config.h"
 #include "options/options.h"
+#include "osdep/threads.h"
 #include "misc/bstr.h"
 #include "common/av_common.h"
 #include "common/codecs.h"
@@ -80,6 +80,7 @@ struct vd_lavc_params {
     int threads;
     bool bitexact;
     bool old_x264;
+    bool apply_cropping;
     bool check_hw_profile;
     int software_fallback;
     char **avopts;
@@ -120,6 +121,7 @@ const struct m_sub_options vd_lavc_conf = {
         {"vd-lavc-o", OPT_KEYVALUELIST(avopts)},
         {"vd-lavc-dr", OPT_CHOICE(dr,
             {"auto", -1}, {"no", 0}, {"yes", 1})},
+        {"vd-apply-cropping", OPT_BOOL(apply_cropping)},
         {"hwdec", OPT_STRINGLIST(hwdec_api),
             .help = hwdec_opt_help,
             .flags = M_OPT_OPTIONAL_PARAM | UPDATE_HWDEC},
@@ -145,6 +147,7 @@ const struct m_sub_options vd_lavc_conf = {
         // for example, if vo_gpu increases the number of reference surfaces for
         // interpolation, this value has to be increased too.
         .hwdec_extra_frames = 6,
+        .apply_cropping = true,
     },
 };
 
@@ -214,7 +217,7 @@ typedef struct lavc_ctx {
     AVBufferRef *cached_hw_frames_ctx;
 
     // --- The following fields are protected by dr_lock.
-    pthread_mutex_t dr_lock;
+    mp_mutex dr_lock;
     bool dr_failed;
     struct mp_image_pool *dr_pool;
     int dr_imgfmt, dr_w, dr_h, dr_stride_align;
@@ -659,8 +662,11 @@ static void reinit(struct mp_filter *vd)
 
     bool use_hwdec = ctx->use_hwdec;
     init_avctx(vd);
-    if (!ctx->avctx && use_hwdec)
-        force_fallback(vd);
+    if (!ctx->avctx && use_hwdec) {
+        do {
+            force_fallback(vd);
+        } while (!ctx->avctx);
+    }
 }
 
 static void init_avctx(struct mp_filter *vd)
@@ -769,6 +775,7 @@ static void init_avctx(struct mp_filter *vd)
     avctx->skip_loop_filter = lavc_param->skip_loop_filter;
     avctx->skip_idct = lavc_param->skip_idct;
     avctx->skip_frame = lavc_param->skip_frame;
+    avctx->apply_cropping = lavc_param->apply_cropping;
 
     if (lavc_codec->id == AV_CODEC_ID_H264 && lavc_param->old_x264)
         av_opt_set(avctx, "x264_build", "150", AV_OPT_SEARCH_CHILDREN);
@@ -1002,7 +1009,7 @@ static int get_buffer2_direct(AVCodecContext *avctx, AVFrame *pic, int flags)
     struct mp_filter *vd = avctx->opaque;
     vd_ffmpeg_ctx *p = vd->priv;
 
-    pthread_mutex_lock(&p->dr_lock);
+    mp_mutex_lock(&p->dr_lock);
 
     int w = pic->width;
     int h = pic->height;
@@ -1014,6 +1021,13 @@ static int get_buffer2_direct(AVCodecContext *avctx, AVFrame *pic, int flags)
     int stride_align = MP_IMAGE_BYTE_ALIGN;
     for (int n = 0; n < AV_NUM_DATA_POINTERS; n++)
         stride_align = MPMAX(stride_align, linesize_align[n]);
+
+    // Note: texel sizes may be NPOT, so use full lcm instead of max
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pic->format);
+    if (!(desc->flags & AV_PIX_FMT_FLAG_BITSTREAM)) {
+        for (int n = 0; n < desc->nb_components; n++)
+            stride_align = mp_lcm(stride_align, desc->comp[n].step);
+    }
 
     int imgfmt = pixfmt2imgfmt(pic->format);
     if (!imgfmt)
@@ -1067,7 +1081,7 @@ static int get_buffer2_direct(AVCodecContext *avctx, AVFrame *pic, int flags)
     }
     talloc_free(img);
 
-    pthread_mutex_unlock(&p->dr_lock);
+    mp_mutex_unlock(&p->dr_lock);
 
     return 0;
 
@@ -1075,7 +1089,7 @@ fallback:
     if (!p->dr_failed)
         MP_VERBOSE(p, "DR failed - disabling.\n");
     p->dr_failed = true;
-    pthread_mutex_unlock(&p->dr_lock);
+    mp_mutex_unlock(&p->dr_lock);
 
     return avcodec_default_get_buffer2(avctx, pic, flags);
 }
@@ -1200,6 +1214,8 @@ static int decode_frame(struct mp_filter *vd)
         }
         return ret;
     }
+
+    mp_codec_info_from_av(avctx, ctx->codec);
 
     // If something was decoded successfully, it must return a frame with valid
     // data.
@@ -1355,14 +1371,14 @@ static int control(struct mp_filter *vd, enum dec_ctrl cmd, void *arg)
     return CONTROL_UNKNOWN;
 }
 
-static void process(struct mp_filter *vd)
+static void vd_lavc_process(struct mp_filter *vd)
 {
     vd_ffmpeg_ctx *ctx = vd->priv;
 
     lavc_process(vd, &ctx->state, send_packet, receive_frame);
 }
 
-static void reset(struct mp_filter *vd)
+static void vd_lavc_reset(struct mp_filter *vd)
 {
     vd_ffmpeg_ctx *ctx = vd->priv;
 
@@ -1372,21 +1388,21 @@ static void reset(struct mp_filter *vd)
     ctx->framedrop_flags = 0;
 }
 
-static void destroy(struct mp_filter *vd)
+static void vd_lavc_destroy(struct mp_filter *vd)
 {
     vd_ffmpeg_ctx *ctx = vd->priv;
 
     uninit_avctx(vd);
 
-    pthread_mutex_destroy(&ctx->dr_lock);
+    mp_mutex_destroy(&ctx->dr_lock);
 }
 
 static const struct mp_filter_info vd_lavc_filter = {
     .name = "vd_lavc",
     .priv_size = sizeof(vd_ffmpeg_ctx),
-    .process = process,
-    .reset = reset,
-    .destroy = destroy,
+    .process = vd_lavc_process,
+    .reset = vd_lavc_reset,
+    .destroy = vd_lavc_destroy,
 };
 
 static struct mp_decoder *create(struct mp_filter *parent,
@@ -1414,7 +1430,7 @@ static struct mp_decoder *create(struct mp_filter *parent,
     ctx->public.f = vd;
     ctx->public.control = control;
 
-    pthread_mutex_init(&ctx->dr_lock, NULL);
+    mp_mutex_init(&ctx->dr_lock);
 
     // hwdec/DR
     struct mp_stream_info *info = mp_filter_find_stream_info(vd);
@@ -1429,6 +1445,9 @@ static struct mp_decoder *create(struct mp_filter *parent,
         talloc_free(vd);
         return NULL;
     }
+
+    codec->codec_desc = ctx->avctx->codec_descriptor->long_name;
+
     return &ctx->public;
 }
 

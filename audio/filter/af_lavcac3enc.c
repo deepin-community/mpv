@@ -50,7 +50,7 @@
 #define AC3_MAX_CHANNELS 6
 #define AC3_MAX_CODED_FRAME_SIZE 3840
 #define AC3_FRAME_SIZE (6  * 256)
-const static uint16_t ac3_bitrate_tab[19] = {
+static const uint16_t ac3_bitrate_tab[19] = {
     32, 40, 48, 56, 64, 80, 96, 112, 128,
     160, 192, 224, 256, 320, 384, 448, 512, 576, 640
 };
@@ -103,7 +103,15 @@ static bool reinit(struct mp_filter *f)
     if (!bit_rate && chmap.num < AC3_MAX_CHANNELS + 1)
         bit_rate = default_bit_rate[chmap.num];
 
-    avcodec_close(s->lavc_actx);
+    avcodec_free_context(&s->lavc_actx);
+    s->lavc_actx = avcodec_alloc_context3(s->lavc_acodec);
+    if (!s->lavc_actx) {
+        MP_ERR(f, "Audio LAVC, couldn't reallocate context!\n");
+        return false;
+    }
+
+    if (mp_set_avopts(f->log, s->lavc_actx, s->opts->avopts) < 0)
+        return false;
 
     // Put sample parameters
     s->lavc_actx->sample_fmt = af_to_avformat(format);
@@ -131,18 +139,18 @@ static bool reinit(struct mp_filter *f)
     return true;
 }
 
-static void reset(struct mp_filter *f)
+static void af_lavcac3enc_reset(struct mp_filter *f)
 {
     struct priv *s = f->priv;
 
     TA_FREEP(&s->in_frame);
 }
 
-static void destroy(struct mp_filter *f)
+static void af_lavcac3enc_destroy(struct mp_filter *f)
 {
     struct priv *s = f->priv;
 
-    reset(f);
+    af_lavcac3enc_reset(f);
     av_packet_free(&s->lavc_pkt);
     avcodec_free_context(&s->lavc_actx);
 }
@@ -153,7 +161,7 @@ static void swap_16(uint16_t *ptr, size_t size)
         ptr[n] = av_bswap16(ptr[n]);
 }
 
-static void process(struct mp_filter *f)
+static void af_lavcac3enc_process(struct mp_filter *f)
 {
     struct priv *s = f->priv;
 
@@ -187,9 +195,6 @@ static void process(struct mp_filter *f)
         case MP_FRAME_AUDIO:
             TA_FREEP(&s->in_frame);
             s->in_frame = input.data;
-            frame = mp_frame_to_av(input, NULL);
-            if (!frame)
-                goto error;
             if (mp_aframe_get_channels(s->in_frame) < s->opts->min_channel_num) {
                 // Just pass it through.
                 s->in_frame = NULL;
@@ -200,6 +205,9 @@ static void process(struct mp_filter *f)
                 if (!reinit(f))
                     goto error;
             }
+            frame = mp_frame_to_av(input, NULL);
+            if (!frame)
+                goto error;
             break;
         default: goto error; // unexpected packet type
         }
@@ -273,9 +281,9 @@ error:
 static const struct mp_filter_info af_lavcac3enc_filter = {
     .name = "lavcac3enc",
     .priv_size = sizeof(struct priv),
-    .process = process,
-    .reset = reset,
-    .destroy = destroy,
+    .process = af_lavcac3enc_process,
+    .reset = af_lavcac3enc_reset,
+    .destroy = af_lavcac3enc_destroy,
 };
 
 static void add_chmaps_to_autoconv(struct mp_filter *f,

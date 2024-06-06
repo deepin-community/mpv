@@ -19,12 +19,12 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <versionhelpers.h>
-#include <pthread.h>
 
 #include "common/common.h"
 #include "common/msg.h"
 #include "misc/bstr.h"
 #include "osdep/io.h"
+#include "osdep/threads.h"
 #include "osdep/windows_utils.h"
 
 #include "d3d11_helpers.h"
@@ -33,7 +33,7 @@
 #define DXGI_ADAPTER_FLAG_SOFTWARE (2)
 typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY)(REFIID riid, void **ppFactory);
 
-static pthread_once_t d3d11_once = PTHREAD_ONCE_INIT;
+static mp_once d3d11_once = MP_STATIC_ONCE_INITIALIZER;
 static PFN_D3D11_CREATE_DEVICE pD3D11CreateDevice = NULL;
 static PFN_CREATE_DXGI_FACTORY pCreateDXGIFactory1 = NULL;
 static void d3d11_load(void)
@@ -51,7 +51,7 @@ static void d3d11_load(void)
 
 static bool load_d3d11_functions(struct mp_log *log)
 {
-    pthread_once(&d3d11_once, d3d11_load);
+    mp_exec_once(&d3d11_once, d3d11_load);
     if (!pD3D11CreateDevice || !pCreateDXGIFactory1) {
         mp_fatal(log, "Failed to load base d3d11 functionality: "
                       "CreateDevice: %s, CreateDXGIFactory1: %s\n",
@@ -228,9 +228,9 @@ static const char *d3d11_get_csp_name(DXGI_COLOR_SPACE_TYPE csp)
 }
 
 static bool d3d11_get_mp_csp(DXGI_COLOR_SPACE_TYPE csp,
-                             struct mp_colorspace *mp_csp)
+                             struct pl_color_space *pl_color_system)
 {
-    if (!mp_csp)
+    if (!pl_color_system)
         return false;
 
     // Colorspaces utilizing gamma 2.2 (G22) are set to
@@ -243,27 +243,27 @@ static bool d3d11_get_mp_csp(DXGI_COLOR_SPACE_TYPE csp,
     // regarding not doing conversion from BT.601 to BT.709.
     switch (csp) {
     case DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709:
-        *mp_csp = (struct mp_colorspace){
-            .gamma     = MP_CSP_TRC_AUTO,
-            .primaries = MP_CSP_PRIM_AUTO,
+        *pl_color_system = (struct pl_color_space){
+            .transfer  = PL_COLOR_TRC_UNKNOWN,
+            .primaries = PL_COLOR_PRIM_UNKNOWN,
         };
         break;
     case DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709:
-        *mp_csp = (struct mp_colorspace) {
-            .gamma     = MP_CSP_TRC_LINEAR,
-            .primaries = MP_CSP_PRIM_AUTO,
+        *pl_color_system = (struct pl_color_space) {
+            .transfer  = PL_COLOR_TRC_LINEAR,
+            .primaries = PL_COLOR_PRIM_UNKNOWN,
         };
         break;
     case DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:
-        *mp_csp = (struct mp_colorspace) {
-            .gamma     = MP_CSP_TRC_PQ,
-            .primaries = MP_CSP_PRIM_BT_2020,
+        *pl_color_system = (struct pl_color_space) {
+            .transfer  = PL_COLOR_TRC_PQ,
+            .primaries = PL_COLOR_PRIM_BT_2020,
         };
         break;
     case DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020:
-        *mp_csp = (struct mp_colorspace) {
-            .gamma     = MP_CSP_TRC_AUTO,
-            .primaries = MP_CSP_PRIM_BT_2020,
+        *pl_color_system = (struct pl_color_space) {
+            .transfer  = PL_COLOR_TRC_UNKNOWN,
+            .primaries = PL_COLOR_PRIM_BT_2020,
         };
         break;
     default:
@@ -287,28 +287,8 @@ static bool query_output_format_and_colorspace(struct mp_log *log,
     if (!out_fmt || !out_cspace)
         return false;
 
-    HRESULT hr = IDXGISwapChain_GetContainingOutput(swapchain, &output);
-    if (FAILED(hr)) {
-        mp_err(log, "Failed to get swap chain's containing output: %s!\n",
-               mp_HRESULT_to_str(hr));
-        goto done;
-    }
-
-    hr = IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6,
-                                    (void**)&output6);
-    if (FAILED(hr)) {
-        // point where systems older than Windows 10 would fail,
-        // thus utilizing error log level only with windows 10+
-        mp_msg(log, IsWindows10OrGreater() ? MSGL_ERR : MSGL_V,
-               "Failed to create a DXGI 1.6 output interface: %s\n",
-               mp_HRESULT_to_str(hr));
-        goto done;
-    }
-
-    hr = IDXGIOutput6_GetDesc1(output6, &desc);
-    if (FAILED(hr)) {
-        mp_err(log, "Failed to query swap chain's output information: %s\n",
-               mp_HRESULT_to_str(hr));
+    if (!mp_get_dxgi_output_desc(swapchain, &desc)) {
+        mp_err(log, "Failed to query swap chain's output information\n");
         goto done;
     }
 
@@ -371,9 +351,9 @@ static int get_feature_levels(int max_fl, int min_fl,
     return len;
 }
 
-static IDXGIAdapter1 *get_d3d11_adapter(struct mp_log *log,
-                                        struct bstr requested_adapter_name,
-                                        struct bstr *listing)
+IDXGIAdapter1 *mp_get_dxgi_adapter(struct mp_log *log,
+                                   bstr requested_adapter_name,
+                                   bstr *listing)
 {
     HRESULT hr = S_OK;
     IDXGIFactory1 *factory;
@@ -437,6 +417,37 @@ static IDXGIAdapter1 *get_d3d11_adapter(struct mp_log *log,
     return picked_adapter;
 }
 
+int mp_dxgi_validate_adapter(struct mp_log *log,
+                             const struct m_option *opt,
+                             struct bstr name, const char **value)
+{
+    struct bstr param = bstr0(*value);
+    bool help = bstr_equals0(param, "help");
+    bool adapter_matched = false;
+    struct bstr listing = { 0 };
+
+    if (bstr_equals0(param, "")) {
+        return 0;
+    }
+
+    adapter_matched = mp_dxgi_list_or_verify_adapters(log,
+                                                      help ? bstr0(NULL) : param,
+                                                      help ? &listing : NULL);
+
+    if (help) {
+        mp_info(log, "Available DXGI adapters:\n%.*s",
+                BSTR_P(listing));
+        talloc_free(listing.start);
+        return M_OPT_EXIT;
+    }
+
+    if (!adapter_matched) {
+        mp_err(log, "No adapter matching '%.*s'!\n", BSTR_P(param));
+    }
+
+    return adapter_matched ? 0 : M_OPT_INVALID;
+}
+
 static HRESULT create_device(struct mp_log *log, IDXGIAdapter1 *adapter,
                              bool warp, bool debug, int max_fl, int min_fl,
                              ID3D11Device **dev)
@@ -455,9 +466,9 @@ static HRESULT create_device(struct mp_log *log, IDXGIAdapter1 *adapter,
                               NULL, flags, levels, levels_len, D3D11_SDK_VERSION, dev, NULL, NULL);
 }
 
-bool mp_d3d11_list_or_verify_adapters(struct mp_log *log,
-                                      bstr adapter_name,
-                                      bstr *listing)
+bool mp_dxgi_list_or_verify_adapters(struct mp_log *log,
+                                     bstr adapter_name,
+                                     bstr *listing)
 {
     IDXGIAdapter1 *picked_adapter = NULL;
 
@@ -465,7 +476,7 @@ bool mp_d3d11_list_or_verify_adapters(struct mp_log *log,
         return false;
     }
 
-    if ((picked_adapter = get_d3d11_adapter(log, adapter_name, listing))) {
+    if ((picked_adapter = mp_get_dxgi_adapter(log, adapter_name, listing))) {
         SAFE_RELEASE(picked_adapter);
         return true;
     }
@@ -497,7 +508,7 @@ bool mp_d3d11_create_present_device(struct mp_log *log,
         goto done;
     }
 
-    adapter = get_d3d11_adapter(log, bstr0(adapter_name), NULL);
+    adapter = mp_get_dxgi_adapter(log, bstr0(adapter_name), NULL);
 
     if (adapter_name && !adapter) {
         mp_warn(log, "Adapter matching '%s' was not found in the system! "
@@ -793,7 +804,7 @@ static bool configure_created_swapchain(struct mp_log *log,
                                         IDXGISwapChain *swapchain,
                                         DXGI_FORMAT requested_format,
                                         DXGI_COLOR_SPACE_TYPE requested_csp,
-                                        struct mp_colorspace *configured_csp)
+                                        struct pl_color_space *configured_csp)
 {
     DXGI_FORMAT probed_format = DXGI_FORMAT_UNKNOWN;
     DXGI_FORMAT selected_format = DXGI_FORMAT_UNKNOWN;
@@ -801,7 +812,7 @@ static bool configure_created_swapchain(struct mp_log *log,
     DXGI_COLOR_SPACE_TYPE selected_colorspace;
     const char *format_name = NULL;
     const char *csp_name = NULL;
-    struct mp_colorspace mp_csp = { 0 };
+    struct pl_color_space pl_color_system = { 0 };
     bool mp_csp_mapped = false;
 
     query_output_format_and_colorspace(log, swapchain,
@@ -817,7 +828,7 @@ static bool configure_created_swapchain(struct mp_log *log,
                           requested_csp : probed_colorspace;
     format_name   = d3d11_get_format_name(selected_format);
     csp_name      = d3d11_get_csp_name(selected_colorspace);
-    mp_csp_mapped = d3d11_get_mp_csp(selected_colorspace, &mp_csp);
+    mp_csp_mapped = d3d11_get_mp_csp(selected_colorspace, &pl_color_system);
 
     mp_verbose(log, "Selected swapchain format %s (%d), attempting "
                     "to utilize it.\n",
@@ -848,7 +859,7 @@ static bool configure_created_swapchain(struct mp_log *log,
                      "mapping! Overriding to standard sRGB!\n",
                 csp_name, selected_colorspace);
         selected_colorspace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
-        d3d11_get_mp_csp(selected_colorspace, &mp_csp);
+        d3d11_get_mp_csp(selected_colorspace, &pl_color_system);
     }
 
     mp_verbose(log, "Selected swapchain color space %s (%d), attempting to "
@@ -860,7 +871,7 @@ static bool configure_created_swapchain(struct mp_log *log,
     }
 
     if (configured_csp) {
-        *configured_csp = mp_csp;
+        *configured_csp = pl_color_system;
     }
 
     return true;
@@ -963,4 +974,24 @@ done:
     SAFE_RELEASE(adapter);
     SAFE_RELEASE(dxgi_dev);
     return success;
+}
+
+bool mp_get_dxgi_output_desc(IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc)
+{
+    bool ret = false;
+    IDXGIOutput *output = NULL;
+    IDXGIOutput6 *output6 = NULL;
+
+    if (FAILED(IDXGISwapChain_GetContainingOutput(swapchain, &output)))
+        goto done;
+
+    if (FAILED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6, (void**)&output6)))
+        goto done;
+
+    ret = SUCCEEDED(IDXGIOutput6_GetDesc1(output6, desc));
+
+done:
+    SAFE_RELEASE(output);
+    SAFE_RELEASE(output6);
+    return ret;
 }

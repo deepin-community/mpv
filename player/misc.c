@@ -147,7 +147,12 @@ double get_track_seek_offset(struct MPContext *mpctx, struct track *track)
         if (track->type == STREAM_AUDIO)
             return -opts->audio_delay;
         if (track->type == STREAM_SUB)
-            return -opts->subs_rend->sub_delay;
+        {
+            for (int n = 0; n < num_ptracks[STREAM_SUB]; n++) {
+                if (mpctx->current_track[n][STREAM_SUB] == track)
+                    return -opts->subs_shared->sub_delay[n];
+            }
+        }
     }
     return 0;
 }
@@ -247,7 +252,8 @@ void error_on_track(struct MPContext *mpctx, struct track *track)
     if (track->type == STREAM_VIDEO)
         MP_INFO(mpctx, "Video: no video\n");
     if (mpctx->opts->stop_playback_on_init_failure ||
-        !(mpctx->vo_chain || mpctx->ao_chain))
+        (!mpctx->current_track[0][STREAM_AUDIO] &&
+         !mpctx->current_track[0][STREAM_VIDEO]))
     {
         if (!mpctx->stop_play)
             mpctx->stop_play = PT_ERROR;
@@ -317,7 +323,7 @@ void merge_playlist_files(struct playlist *pl)
         edl = talloc_strdup_append_buffer(edl, e->filename);
     }
     playlist_clear(pl);
-    playlist_add_file(pl, edl);
+    playlist_append_file(pl, edl);
     talloc_free(edl);
 }
 

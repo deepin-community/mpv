@@ -376,6 +376,7 @@ struct mp_filter_command {
     enum mp_filter_command_type type;
 
     // For MP_FILTER_COMMAND_TEXT
+    const char *target;
     const char *cmd;
     const char *arg;
 
@@ -398,6 +399,7 @@ struct mp_stream_info {
     void *priv; // for use by whoever implements the callbacks
 
     double (*get_display_fps)(struct mp_stream_info *i);
+    void   (*get_display_res)(struct mp_stream_info *i, int *res);
 
     struct mp_hwdec_devices *hwdec_devs;
     struct osd_state *osd;

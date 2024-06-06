@@ -9,14 +9,19 @@
 #define SUB_GAP_THRESHOLD 0.210
 // don't change timings if durations are smaller
 #define SUB_GAP_KEEP 0.4
+// slight offset when sub seeking or sub stepping
+#define SUB_SEEK_OFFSET 0.01
+#define SUB_SEEK_WITHOUT_VIDEO_OFFSET 0.1
 
 struct sd {
     struct mpv_global *global;
     struct mp_log *log;
     struct mp_subtitle_opts *opts;
+    struct mp_subtitle_shared_opts *shared_opts;
 
     const struct sd_functions *driver;
     void *priv;
+    int order;
 
     struct attachment_list *attachments;
     struct mp_codec_params *codec;
@@ -24,8 +29,6 @@ struct sd {
     // Set to false as soon as the decoder discards old subtitle events.
     // (only needed if sd_functions.accept_packets_in_advance == false)
     bool preload_ok;
-
-    bool forced_only_def;
 };
 
 struct sd_functions {

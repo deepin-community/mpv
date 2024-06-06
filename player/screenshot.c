@@ -77,7 +77,8 @@ static char *stripext(void *talloc_ctx, const char *s)
 }
 
 static bool write_screenshot(struct mp_cmd_ctx *cmd, struct mp_image *img,
-                             const char *filename, struct image_writer_opts *opts)
+                             const char *filename, struct image_writer_opts *opts,
+                             bool overwrite)
 {
     struct MPContext *mpctx = cmd->mpctx;
     struct image_writer_opts *gopts = mpctx->opts->screenshot_image_opts;
@@ -88,7 +89,7 @@ static bool write_screenshot(struct mp_cmd_ctx *cmd, struct mp_image *img,
     mp_core_unlock(mpctx);
 
     bool ok = img && write_image(img, &opts_copy, filename, mpctx->global,
-                                 mpctx->screenshot_ctx->log);
+                                 mpctx->screenshot_ctx->log, overwrite);
 
     mp_core_lock(mpctx);
 
@@ -166,7 +167,7 @@ static char *create_fname(struct MPContext *mpctx, char *template,
                 goto error_exit;
             char fmtstr[] = {'%', '0', digits, 'd', '\0'};
             res = talloc_asprintf_append(res, fmtstr, *frameno);
-            if (*frameno < 100000 - 1) {
+            if (*frameno < INT_MAX - 1) {
                 (*frameno) += 1;
                 (*sequence) += 1;
             }
@@ -294,7 +295,7 @@ static char *gen_fname(struct mp_cmd_ctx *cmd, const char *file_ext)
             return NULL;
         }
 
-        char *dir = ctx->mpctx->opts->screenshot_directory;
+        char *dir = ctx->mpctx->opts->screenshot_dir;
         if (dir && dir[0]) {
             void *t = fname;
             dir = mp_get_user_path(t, ctx->mpctx->global, dir);
@@ -384,6 +385,19 @@ static struct mp_image *screenshot_get(struct MPContext *mpctx, int mode,
     }
 
     if (use_sw && image && window) {
+        if (mp_image_crop_valid(&image->params) &&
+            (mp_rect_w(image->params.crop) != image->w ||
+             mp_rect_h(image->params.crop) != image->h))
+        {
+            struct mp_image *nimage = mp_image_new_ref(image);
+            if (!nimage) {
+                MP_ERR(mpctx->screenshot_ctx, "mp_image_new_ref failed!\n");
+                return NULL;
+            }
+            mp_image_crop_rc(nimage, image->params.crop);
+            talloc_free(image);
+            image = nimage;
+        }
         struct mp_osd_res res = osd_get_vo_res(mpctx->video_out->osd);
         struct mp_osd_res image_res = osd_res_from_image_params(&image->params);
         if (!osd_res_equals(res, image_res)) {
@@ -483,7 +497,7 @@ void cmd_screenshot_to_file(void *p)
         cmd->success = false;
         return;
     }
-    cmd->success = write_screenshot(cmd, image, filename, &opts);
+    cmd->success = write_screenshot(cmd, image, filename, &opts, true);
     talloc_free(image);
 }
 
@@ -524,7 +538,7 @@ void cmd_screenshot(void *p)
     if (image) {
         char *filename = gen_fname(cmd, image_writer_file_ext(opts));
         if (filename) {
-            cmd->success = write_screenshot(cmd, image, filename, NULL);
+            cmd->success = write_screenshot(cmd, image, filename, NULL, false);
             if (cmd->success) {
                 node_init(res, MPV_FORMAT_NODE_MAP, NULL);
                 node_map_add_string(res, "filename", filename);

@@ -44,18 +44,16 @@ The exact syntax is:
     the ``lavfi`` filter, which uses a very similar syntax as mpv (MPlayer
     historically) to specify filters and their parameters.
 
+.. note::
+
+    ``--vf`` can only take a single track as input, even if the filter supports
+    dynamic input. Filters that require multiple inputs can't be used.
+    Use ``--lavfi-complex`` for such a use case. This also applies for ``--af``.
+
 Filters can be manipulated at run time. You can use ``@`` labels as described
 above in combination with the ``vf`` command (see `COMMAND INTERFACE`_) to get
 more control over this. Initially disabled filters with ``!`` are useful for
 this as well.
-
-You can also set defaults for each filter. The defaults are applied before the
-normal filter parameters. This is deprecated and never worked for the
-libavfilter bridge.
-
-``--vf-defaults=<filter1[=parameter1:parameter2:...],filter2,...>``
-    Set defaults for each filter. (Deprecated. ``--af-defaults`` is deprecated
-    as well.)
 
 .. note::
 
@@ -109,11 +107,6 @@ filter list.
     Add the given filter to the list if it was not present yet, or remove it
     from the list if it was present. Matching of filters works as described in
     ``--vf-remove``.
-
-``--vf-del=filter``
-    Sort of like ``--vf-remove``, but also accepts an index number. Index
-    numbers start at 0, negative numbers address the end of the list (-1 is the
-    last). Deprecated.
 
 ``--vf-clr``
     Completely empties the filter list.
@@ -211,10 +204,13 @@ Available mpv-only filters are:
         Available color spaces are:
 
         :auto:          automatic selection (default)
-        :bt.601:        ITU-R BT.601 (SD)
-        :bt.709:        ITU-R BT.709 (HD)
-        :bt.2020-ncl:   ITU-R BT.2020 non-constant luminance system
-        :bt.2020-cl:    ITU-R BT.2020 constant luminance system
+        :bt.601:        ITU-R Rec. BT.601 (SD)
+        :bt.709:        ITU-R Rec. BT.709 (HD)
+        :bt.2020-ncl:   ITU-R Rec. BT.2020 (non-constant luminance)
+        :bt.2020-cl:    ITU-R Rec. BT.2020 (constant luminance)
+        :bt.2100-pq:    ITU-R Rec. BT.2100 ICtCp PQ variant
+        :bt.2100-hlg:   ITU-R Rec. BT.2100 ICtCp HLG variant
+        :dolbyvision:   Dolby Vision
         :smpte-240m:    SMPTE-240M
 
     ``<colorlevels>``
@@ -319,6 +315,10 @@ Available mpv-only filters are:
     ``<dolbyvision=yes|no>``
         Whether or not to include Dolby Vision metadata (default: yes). If
         disabled, any Dolby Vision metadata will be stripped from frames.
+
+    ``<hdr10plus=yes|no>``
+        Whether or not to include HDR10+ metadata (default: yes). If
+        disabled, any HDR10+ metadata will be stripped from frames.
 
     ``<film-grain=yes|no>``
         Whether or not to include film grain metadata (default: yes). If
@@ -576,12 +576,18 @@ Available mpv-only filters are:
         completely broken (e.g. 0 or NaN). Even if the value is correct,
         if another filter changes the real FPS (by dropping or inserting
         frames), the value of this variable will not be useful. Note that
-        the ``--fps`` command line option overrides this value.
+        the ``--container-fps-override`` command line option overrides this value.
 
         Useful for some filters which insist on having a FPS.
 
     ``display_fps``
         Refresh rate of the current display. Note that this value can be 0.
+
+    ``display_res``
+        Resolution of the current display. This is an integer array with the
+        first entry corresponding to the width and the second entry coresponding
+        to the height. These values can be 0. Note that this will not respond to
+        monitor changes and may not work on all platforms.
 
 ``vavpp``
     VA-API video post processing. Requires the system to support VA-API,

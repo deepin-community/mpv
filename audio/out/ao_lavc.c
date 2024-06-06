@@ -26,6 +26,7 @@
 #include <limits.h>
 
 #include <libavutil/common.h>
+#include <libavutil/samplefmt.h>
 
 #include "config.h"
 #include "options/options.h"
@@ -173,7 +174,7 @@ static int init(struct ao *ao)
     return 0;
 
 fail:
-    pthread_mutex_unlock(&ao->encode_lavc_ctx->lock);
+    mp_mutex_unlock(&ao->encode_lavc_ctx->lock);
     ac->shutdown = true;
     return -1;
 }
@@ -261,7 +262,7 @@ static bool audio_write(struct ao *ao, void **data, int samples)
     double outpts = pts;
 
     // for ectx PTS fields
-    pthread_mutex_lock(&ectx->lock);
+    mp_mutex_lock(&ectx->lock);
 
     if (!ectx->options->rawts) {
         // Fix and apply the discontinuity pts offset.
@@ -280,9 +281,6 @@ static bool audio_write(struct ao *ao, void **data, int samples)
         outpts = pts + ectx->discontinuity_pts_offset;
     }
 
-    // Shift pts by the pts offset first.
-    outpts += encoder_get_offset(ac->enc);
-
     // Calculate expected pts of next audio frame (input side).
     ac->expected_next_pts = pts + mp_aframe_get_size(af) / (double) ao->samplerate;
 
@@ -293,7 +291,7 @@ static bool audio_write(struct ao *ao, void **data, int samples)
             ectx->next_in_pts = nextpts;
     }
 
-    pthread_mutex_unlock(&ectx->lock);
+    mp_mutex_unlock(&ectx->lock);
 
     mp_aframe_set_pts(af, outpts);
 
