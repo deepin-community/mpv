@@ -1,0 +1,25 @@
+Index: mpv-master/video/out/opengl/libmpv_gl.c
+===================================================================
+--- mpv-master.orig/video/out/opengl/libmpv_gl.c
++++ mpv-master/video/out/opengl/libmpv_gl.c
+@@ -70,6 +70,7 @@ static int wrap_fbo(struct libmpv_gpu_co
+ {
+     struct priv *p = ctx->priv;
+ 
++    p->gl->Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     mpv_opengl_fbo *fbo =
+         get_mpv_render_param(params, MPV_RENDER_PARAM_OPENGL_FBO, NULL);
+     if (!fbo)
+Index: mpv-master/video/out/opengl/ra_gl.c
+===================================================================
+--- mpv-master.orig/video/out/opengl/ra_gl.c
++++ mpv-master/video/out/opengl/ra_gl.c
+@@ -691,7 +691,7 @@ static void gl_clear(struct ra *ra, stru
+ 
+     gl->Enable(GL_SCISSOR_TEST);
+     gl->ClearColor(color[0], color[1], color[2], color[3]);
+-    gl->Clear(GL_COLOR_BUFFER_BIT);
++    gl->Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     gl->Disable(GL_SCISSOR_TEST);
+ 
+     gl->BindFramebuffer(GL_FRAMEBUFFER, 0);
