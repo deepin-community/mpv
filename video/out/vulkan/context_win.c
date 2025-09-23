@@ -59,7 +59,7 @@ static bool win_init(struct ra_ctx *ctx)
          .hwnd = vo_w32_hwnd(ctx->vo),
     };
 
-    struct ra_vk_ctx_params params = {0};
+    struct ra_ctx_params params = {0};
 
     VkInstance inst = vk->vkinst->instance;
     VkResult res = vkCreateWin32SurfaceKHR(inst, &wininfo, NULL, &vk->surface);
@@ -107,6 +107,7 @@ static void win_update_render_opts(struct ra_ctx *ctx)
 const struct ra_ctx_fns ra_ctx_vulkan_win = {
     .type               = "vulkan",
     .name               = "winvk",
+    .description        = "Win32/Vulkan",
     .reconfig           = win_reconfig,
     .control            = win_control,
     .update_render_opts = win_update_render_opts,
