@@ -1,3 +1,10 @@
+mpv (0.38.0-1deepin3) unstable; urgency=medium
+
+  * chore: Update version to 0.38.0-1deepin3
+  * fix: add vaapi null pointer crash patch to series
+
+ -- zhanghongyuan <zhanghongyuan@uniontech.com>  Mon, 15 Dec 2025 09:54:24 +0800
+
 mpv (0.38.0-1deepin2) unstable; urgency=medium
 
   * chore: Update version to  0.38.0-1deepin2
