@@ -1,22 +1,57 @@
-mpv (0.38.0-1deepin3) unstable; urgency=medium
+mpv (0.40.0-5) unstable; urgency=medium
 
-  * chore: Update version to 0.38.0-1deepin3
-  * fix: add vaapi null pointer crash patch to series
+  * debian/control: Drop RRR: no
+  * debian/patches: Create missing folders for watch history (Closes: #1115938)
 
- -- zhanghongyuan <zhanghongyuan@uniontech.com>  Mon, 15 Dec 2025 09:54:24 +0800
+ -- Sebastian Ramacher <sramacher@debian.org>  Tue, 28 Oct 2025 19:22:41 +0100
 
-mpv (0.38.0-1deepin2) unstable; urgency=medium
+mpv (0.40.0-4) unstable; urgency=medium
 
-  * chore: Update version to  0.38.0-1deepin2
-  * fix: update debian patch series
+  [ Diederik de Haas ]
+  * d/p: Add patch to fix compilation issue with ffmpeg 8.0 (Closes: #1115038)
+  * d/copyright: Replace old FSF address with URL to licenses
+  * d/watch: Upgrade to Debian watch version 5
 
- -- zhanghongyuan <zhanghongyuan@uniontech.com>  Fri, 12 Dec 2025 16:56:10 +0800
+ -- Sebastian Ramacher <sramacher@debian.org>  Tue, 28 Oct 2025 19:09:44 +0100
 
-mpv (0.38.0-1deepin1) unstable; urgency=medium
+mpv (0.40.0-3) unstable; urgency=medium
 
-  * Synchronize Pro patches
+  [ Diederik de Haas ]
+  * d/copyright: Update for moved files
 
- -- xiepengfei <xiepengfei@uniontech.com>  Thu, 11 Jul 2024 18:29:22 +0800
+  [ Sebastian Ramacher ]
+  * debian/control: Update dependencies of -dev package
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Fri, 04 Apr 2025 18:43:53 +0200
+
+mpv (0.40.0-2) unstable; urgency=medium
+
+  * Fix up version history
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Sun, 30 Mar 2025 13:55:36 +0200
+
+mpv (0.40.0-1) unstable; urgency=medium
+
+  * New upstream version 0.40.0
+  * debian/control:
+    - Bump Standards-Version
+    - Bump libav* build dependencies
+    - Add libdisplay-info-dev to Build-Depends
+    - Remove unused build dependencies
+  * debian/rules: Drop some unnecessary build flags
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Sun, 30 Mar 2025 13:42:18 +0200
+
+mpv (0.39.0-1) unstable; urgency=medium
+
+  [ Joachim Bauch ]
+  * Re-enable sndio support (Closes: #1021761).
+
+  [ Sebastian Ramacher ]
+  * New upstream version 0.39.0
+  * debian/control: Bump ffmpeg dependencies to 7:6.1
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Tue, 10 Dec 2024 00:05:52 +0100
 
 mpv (0.38.0-1) unstable; urgency=medium
 

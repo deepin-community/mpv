@@ -10,6 +10,8 @@ syntax is:
 If the list has a trailing ``,``, mpv will fall back on drivers not contained
 in the list.
 
+This is an object settings list option. See `List Options`_ for details.
+
 .. note::
 
     See ``--vo=help`` for a list of compiled-in video output drivers.
@@ -18,6 +20,10 @@ in the list.
     other drivers are for compatibility or special purposes. If the default
     does not work, it will fallback to other drivers (in the same order as
     listed by ``--vo=help``).
+
+    Note that the default video output driver is subject to change, and must
+    not be relied upon. If a certain VO needs to be used (e.g. for ``libmpv``
+    rendering API), it must be explicitly specified.
 
 Available video output drivers are:
 
@@ -296,8 +302,16 @@ Available video output drivers are:
     as ``auto-safe``. It can still work in some circumstances without ``--hwdec`` due to
     mpv's internal conversion filters, but this is not recommended as it's a needless
     extra step. Correct output depends on support from your GPU, drivers, and compositor.
-    Weston and wlroots-based compositors like Sway and Intel GPUs are known to generally
-    work.
+    This requires the compositor and mpv to support ``color-management-v1`` to
+    accurately display colorspaces that are different from the compositor
+    default (bt.601 in most cases).
+
+    .. warning::
+
+        This driver is not required for mpv to work on Wayland. ``vo=gpu``
+        and ``vo=gpu-next`` will switch to the appropriate Wayland context
+        automatically. This driver is experimental and generally lower quality
+        than ``gpu``/``gpu-next``.
 
 ``vaapi``
     Intel VA API video output driver with support for hardware decoding. Note
@@ -370,7 +384,7 @@ Available video output drivers are:
         Select how to write the pixels to the terminal.
 
         half-blocks
-            Uses unicode LOWER HALF BLOCK character to achieve higher vertical
+            Uses Unicode LOWER HALF BLOCK character to achieve higher vertical
             resolution. (Default.)
         plain
             Uses spaces. Causes vertical resolution to drop twofolds, but in

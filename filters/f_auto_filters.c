@@ -65,7 +65,7 @@ static void deint_process(struct mp_filter *f)
     if (!mp_subfilter_drain_destroy(&p->sub))
         return;
 
-    assert(!p->sub.filter);
+    mp_assert(!p->sub.filter);
 
     p->prev_imgfmt = img->imgfmt;
     p->deinterlace_active = should_deinterlace;
@@ -77,7 +77,7 @@ static void deint_process(struct mp_filter *f)
     char *field_parity;
     switch (opts->field_parity) {
     case MP_FIELD_PARITY_TFF:
-        field_parity = "tff"; 
+        field_parity = "tff";
         break;
     case MP_FIELD_PARITY_BFF:
         field_parity = "bff";
@@ -88,12 +88,13 @@ static void deint_process(struct mp_filter *f)
 
     bool has_filter = true;
     if (img->imgfmt == IMGFMT_VDPAU) {
-        char *args[] = {"deint", "yes", 
+        char *args[] = {"deint", "yes",
                         "parity", field_parity, NULL};
         p->sub.filter =
             mp_create_user_filter(f, MP_OUTPUT_CHAIN_VIDEO, "vdpaupp", args);
     } else if (img->imgfmt == IMGFMT_D3D11) {
-        char *args[] = {"parity", field_parity, NULL};
+        char *args[] = {"deint", "yes",
+                        "parity", field_parity, NULL};
         p->sub.filter =
             mp_create_user_filter(f, MP_OUTPUT_CHAIN_VIDEO, "d3d11vpp", args);
     } else if (img->imgfmt == IMGFMT_CUDA) {
@@ -108,7 +109,6 @@ static void deint_process(struct mp_filter *f)
             mp_create_user_filter(f, MP_OUTPUT_CHAIN_VIDEO, "bwdif_vulkan", args);
     } else if (img->imgfmt == IMGFMT_VAAPI) {
         char *args[] = {"deint", "motion-adaptive",
-                        "interlaced-only", "yes", 
                         "parity", field_parity, NULL};
         p->sub.filter =
             mp_create_user_filter(f, MP_OUTPUT_CHAIN_VIDEO, "vavpp", args);
@@ -246,7 +246,7 @@ static void rotate_process(struct mp_filter *f)
     if (!mp_subfilter_drain_destroy(&p->sub))
         return;
 
-    assert(!p->sub.filter);
+    mp_assert(!p->sub.filter);
 
     int rotate = p->prev_rotate = img->params.rotate;
     p->target_rotate = rotate;

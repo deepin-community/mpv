@@ -86,7 +86,8 @@ own event handlers which you have registered with ``mp.register_event``, or
 timers added with ``mp.add_timeout`` or similar. Note that since the
 script starts execution concurrently with player initialization, some properties
 may not be populated with meaningful values until the relevant subsystems have
-initialized.
+initialized. Rather than retrieving these properties at the top of scripts, you
+should use ``mp.observe_property`` or read them within event handlers.
 
 When the player quits, all scripts will be asked to terminate. This happens via
 a ``shutdown`` event, which by default will make the event loop return. If your
@@ -292,6 +293,18 @@ The ``mp`` module is preloaded, although it can be loaded manually with
 
     After calling this function, key presses will cause the function ``fn`` to
     be called (unless the user remapped the key with another binding).
+    However, if the key binding is canceled , the function will not be called,
+    unless ``complex`` flag is set to ``true``, where the function will be
+    called with the ``canceled`` entry set to ``true``.
+
+    For example, a canceled key binding can happen in the following situations:
+
+    - If key A is pressed while key B is being held down, key B is logically
+      released ("canceled" by key A), which stops the current autorepeat
+      action key B has.
+    - If key A is pressed while a mouse button is being held down, the mouse
+      button is logically released, but the mouse button's action will not be
+      called, unless ``complex`` flag is set to ``true``.
 
     The ``name`` argument should be a short symbolic string. It allows the user
     to remap the key binding via input.conf using the ``script-message``
@@ -303,12 +316,19 @@ The ``mp`` module is preloaded, although it can be loaded manually with
     or pass the ``fn`` argument in place of the name. The latter is not
     recommended and is handled for compatibility only.)
 
-    The last argument is used for optional flags. This is a table, which can
-    have the following entries:
+    The ``flags`` argument is used for optional parameters. This is a table,
+    which can have the following entries:
 
         ``repeatable``
             If set to ``true``, enables key repeat for this specific binding.
             This option only makes sense when ``complex`` is not set to ``true``.
+
+        ``scalable``
+            If set to ``true``, enables key scaling for this specific binding.
+            This option only makes sense when ``complex`` is set to ``true``.
+            Note that this has no effect if the key binding is invoked by
+            ``script-binding`` command, where the scalability of the command
+            takes precedence.
 
         ``complex``
             If set to ``true``, then ``fn`` is called on key down, repeat and up
@@ -318,10 +338,14 @@ The ``mp`` module is preloaded, although it can be loaded manually with
                 ``event``
                     Set to one of the strings ``down``, ``repeat``, ``up`` or
                     ``press`` (the latter if key up/down/repeat can't be
-                    tracked).
+                    tracked), which indicates the key's logical state.
 
                 ``is_mouse``
-                    Boolean Whether the event was caused by a mouse button.
+                    Boolean: Whether the event was caused by a mouse button.
+
+                ``canceled``
+                    Boolean: Whether the event was canceled.
+                    Not all types of cancellations set this flag.
 
                 ``key_name``
                     The name of they key that triggered this, or ``nil`` if
@@ -332,6 +356,15 @@ The ``mp`` module is preloaded, although it can be loaded manually with
                     Text if triggered by a text key, otherwise ``nil``. See
                     description of ``script-binding`` command for details (this
                     field is equivalent to the 5th argument).
+
+                ``scale``
+                    The scale of the key, such as the ones produced by ``WHEEL_*``
+                    keys. The scale is 1 if the key is nonscalable.
+
+                ``arg``
+                    User-provided string in the ``arg`` argument in the
+                    ``script-binding`` command if the key binding is invoked
+                    by that command.
 
     Internally, key bindings are dispatched via the ``script-message-to`` or
     ``script-binding`` input commands and ``mp.register_script_message``.
@@ -502,7 +535,7 @@ The ``mp`` module is preloaded, although it can be loaded manually with
         seconds = 0
         timer = mp.add_periodic_timer(1, function()
             print("called every second")
-            # stop it after 10 seconds
+            -- stop it after 10 seconds
             seconds = seconds + 1
             if seconds >= 10 then
                 timer:kill()
@@ -629,6 +662,20 @@ are useful only in special situations.
     be "scaled" pixels). The third is the display pixel aspect ratio.
 
     May return invalid/nonsense values if OSD is not initialized yet.
+
+``exit()`` (global)
+    Make the script exit at the end of the current event loop iteration. This
+    does not terminate mpv itself or other scripts.
+
+    This can be polyfilled to support mpv versions older than 0.40 with:
+
+    ::
+
+        if not _G.exit then
+            function exit()
+                mp.keep_running = false
+            end
+        end
 
 mp.msg functions
 ----------------
@@ -879,27 +926,33 @@ REPL.
 
     ``submit``
         A callback invoked when the user presses Enter. The first argument is
-        the text in the console. You can close the console from within the
-        callback by calling ``input.terminate()``. If you don't, the console
-        stays open and the user can input more text.
+        the text in the console.
+
+    ``keep_open``
+        Whether to keep the console open on submit. Defaults to ``false``.
 
     ``opened``
         A callback invoked when the console is shown. This can be used to
         present a list of options with ``input.set_log()``.
 
     ``edited``
-        A callback invoked when the text changes. This can be used to filter a
-        list of options based on what the user typed with ``input.set_log()``,
-        like dmenu does. The first argument is the text in the console.
+        A callback invoked when the text changes. The first argument is the text
+        in the console.
 
     ``complete``
-        A callback invoked when the user presses TAB. The first argument is the
-        text before the cursor. The callback should return a table of the string
-        candidate completion values and the 1-based cursor position from which
-        the completion starts. console.lua will filter the suggestions beginning
-        with the the text between this position and the cursor, sort them
-        alphabetically, insert their longest common prefix, and show them when
-        there are multiple ones.
+        A callback invoked when the user edits the text or moves the cursor. The
+        first argument is the text before the cursor. The callback should return
+        a table of the string candidate completion values and the 1-based cursor
+        position from which the completion starts. console will show the
+        completions that fuzzily match the text between this position and the
+        cursor and allow selecting them.
+
+        The third and optional return value is a string that will be appended to
+        the input line without displaying it in the completions.
+
+    ``autoselect_completion``
+        Whether to automatically select the first completion on submit if one
+        wasn't already manually selected. Defaults to ``false``.
 
     ``closed``
         A callback invoked when the console is hidden, either because
@@ -913,12 +966,14 @@ REPL.
     ``cursor_position``
         The initial cursor position, starting from 1.
 
+    ``history_path``
+        If specified, the path to save and load the history of the entered
+        lines.
+
     ``id``
         An identifier that determines which input history and log buffer to use
-        among the ones stored for ``input.get()`` calls. The input histories
-        and logs are stored in memory and do not persist across different mpv
-        invocations. Defaults to the calling script name with ``prompt``
-        appended.
+        among the ones stored for ``input.get()`` calls. Defaults to the calling
+        script name with ``prompt`` appended.
 
 ``input.terminate()``
     Close the console.
@@ -929,8 +984,8 @@ REPL.
     that are used when the console is displayed in the terminal.
 
 ``input.log_error(message)``
-    Helper to add a line to the log buffer with the same color as the one the
-    console uses for errors. Useful when the user submits invalid input.
+    Helper to add a line to the log buffer with the same color as the one used
+    for commands that error. Useful when the user submits invalid input.
 
 ``input.set_log(log)``
     Replace the entire log buffer.
@@ -950,6 +1005,41 @@ REPL.
                 terminal_style = "\027[31m",
             }
         })
+
+``input.select(table)``
+    Specify a list of items that are presented to the user for selection.
+
+    The following entries of ``table`` are read:
+
+    ``prompt``
+        The string to be displayed before the input field.
+
+    ``items``
+        The table of the entries to choose from.
+
+    ``default_item``
+        The 1-based integer index of the preselected item.
+
+    ``submit``
+        The callback invoked when the user presses Enter. The first argument is
+        the 1-based index of the selected item.
+
+    ``keep_open``
+        Whether to keep the console open on submit. Defaults to ``false``.
+
+    Example:
+
+        ::
+
+            input.select({
+                items = {
+                    "First playlist entry",
+                    "Second playlist entry",
+                },
+                submit = function (id)
+                    mp.commandv("playlist-play-index", id - 1)
+                end,
+            })
 
 Events
 ------

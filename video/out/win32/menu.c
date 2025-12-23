@@ -18,13 +18,15 @@
 #include <windows.h>
 #include <string.h>
 
-#include "libmpv/client.h"
+#include "mpv/client.h"
 #include "osdep/io.h"
 #include "mpv_talloc.h"
 
 #include "menu.h"
 
 struct menu_ctx {
+    HWND  hwnd;
+    bool  updated;
     HMENU menu;
     void *ta_data; // talloc context for MENUITEMINFOW.dwItemData
 };
@@ -39,6 +41,9 @@ static int append_menu(HMENU hmenu, UINT fMask, UINT fType, UINT fState,
     mii.cbSize = sizeof(mii);
     mii.fMask = MIIM_ID | fMask;
     mii.wID = id++;
+    // menu id must be less than 0xF000 and greater than WM_USER
+    if (id >= 0xF000)
+        id = WM_USER + 100;
 
     if (fMask & MIIM_FTYPE)
         mii.fType = fType;
@@ -178,9 +183,11 @@ static void build_menu(void *talloc_ctx, HMENU hmenu, struct mpv_node *node)
     }
 }
 
-struct menu_ctx *mp_win32_menu_init(void)
+struct menu_ctx *mp_win32_menu_init(HWND hwnd)
 {
     struct menu_ctx *ctx = talloc_ptrtype(NULL, ctx);
+    ctx->hwnd = hwnd;
+    ctx->updated = false;
     ctx->menu = CreatePopupMenu();
     ctx->ta_data = talloc_new(ctx);
     return ctx;
@@ -214,10 +221,21 @@ void mp_win32_menu_show(struct menu_ctx *ctx, HWND hwnd)
 void mp_win32_menu_update(struct menu_ctx *ctx, struct mpv_node *data)
 {
     while (GetMenuItemCount(ctx->menu) > 0)
-        RemoveMenu(ctx->menu, 0, MF_BYPOSITION);
+        DeleteMenu(ctx->menu, 0, MF_BYPOSITION);
     talloc_free_children(ctx->ta_data);
 
     build_menu(ctx->ta_data, ctx->menu, data);
+    if (!ctx->updated) {
+        append_menu(GetSystemMenu(ctx->hwnd, FALSE), MIIM_FTYPE, MFT_SEPARATOR, 0, NULL, NULL, NULL);
+        append_menu(GetSystemMenu(ctx->hwnd, FALSE), MIIM_STRING | MIIM_SUBMENU, 0, 0,
+                    build_title(ctx->ta_data, "mpv", NULL), ctx->menu, NULL);
+        ctx->updated = true;
+    } else if (data->format != MPV_FORMAT_NODE_ARRAY) {
+        // recreate ctx->menu because it is destroyed here
+        GetSystemMenu(ctx->hwnd, TRUE);
+        ctx->menu = CreatePopupMenu();
+        ctx->updated = false;
+    }
 }
 
 const char* mp_win32_menu_get_cmd(struct menu_ctx *ctx, UINT id)
