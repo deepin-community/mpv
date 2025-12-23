@@ -1,5 +1,2 @@
-pgv-flower-screen.patch
-vdpau-render.patch
-Fix-the-problem-of-the-full-screen-crash.patch
-fix-mpv.patch
-fix-vaapi-nullpter-crush.patch
+0001-demux_mkv-fix-compilation-after-deprecated-definitio.patch
+0002-player-create-missing-folders-for-watch-history-path.patch
