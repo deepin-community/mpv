@@ -175,17 +175,6 @@ static inline int mp_thread_join(mp_thread thread)
     return 0;
 }
 
-static inline int mp_thread_join_id(mp_thread_id id)
-{
-    mp_thread thread = OpenThread(SYNCHRONIZE, FALSE, id);
-    if (!thread)
-        return ESRCH;
-    int ret = mp_thread_join(thread);
-    if (ret)
-        CloseHandle(thread);
-    return ret;
-}
-
 static inline int mp_thread_detach(mp_thread thread)
 {
     return CloseHandle(thread) ? 0 : EINVAL;
@@ -199,12 +188,13 @@ static inline int mp_thread_detach(mp_thread thread)
 wchar_t *mp_from_utf8(void *talloc_ctx, const char *s);
 static inline void mp_thread_set_name(const char *name)
 {
-    HRESULT (WINAPI *pSetThreadDescription)(HANDLE, PCWSTR);
+    typedef HRESULT (WINAPI *SetThreadDescriptionFn)(HANDLE, PCWSTR);
+    SetThreadDescriptionFn pSetThreadDescription;
 #if !HAVE_UWP
     HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
     if (!kernel32)
         return;
-    pSetThreadDescription = (void *) GetProcAddress(kernel32, "SetThreadDescription");
+    pSetThreadDescription = (SetThreadDescriptionFn) GetProcAddress(kernel32, "SetThreadDescription");
     if (!pSetThreadDescription)
         return;
 #else
@@ -217,8 +207,4 @@ static inline void mp_thread_set_name(const char *name)
     talloc_free(wname);
 }
 
-static inline int64_t mp_thread_cpu_time_ns(mp_thread_id thread)
-{
-    (void) thread;
-    return 0;
-}
+int64_t mp_thread_cpu_time_ns(mp_thread_id thread_id);

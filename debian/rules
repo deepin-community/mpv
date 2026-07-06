@@ -18,16 +18,6 @@ override_dh_auto_configure:
 		-Dcdda=enabled \
 		-Ddvdnav=enabled \
 		-Dsdl2=enabled \
-		-Davfoundation=disabled \
-		-Degl-angle-win32=disabled \
-		-Dgl-cocoa=disabled \
-		-Dgl-win32=disabled \
-		-Dios-gl=disabled \
-		-Dsndio=disabled \
-		-Duwp=disabled \
-		-Dvaapi-win32=disabled \
-		-Dwasapi=disabled \
-		-Dwin32-threads=disabled \
 		$(ARCH_CONFIGURE)
 
 execute_after_dh_auto_install:

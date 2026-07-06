@@ -47,10 +47,10 @@ License: LGPL-2.1+
 
 Files:
  audio/out/ao_sndio.c
- libmpv/client.h
- libmpv/render.h
- libmpv/render_gl.h
- libmpv/stream_cb.h
+ include/mpv/client.h
+ include/mpv/render.h
+ include/mpv/render_gl.h
+ include/mpv/stream_cb.h
  misc/thread_pool.c
  misc/thread_tools.c
  osdep/win32-console-wrapper.c
