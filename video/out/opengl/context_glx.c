@@ -290,7 +290,7 @@ static bool glx_init(struct ra_ctx *ctx)
     if (!success)
         goto uninit;
 
-    struct ra_gl_ctx_params params = {
+    struct ra_ctx_params params = {
         .check_visible = glx_check_visible,
         .swap_buffers = glx_swap_buffers,
         .get_vsync    = glx_get_vsync,
@@ -342,6 +342,7 @@ static void glx_wait_events(struct ra_ctx *ctx, int64_t until_time_ns)
 const struct ra_ctx_fns ra_ctx_glx = {
     .type           = "opengl",
     .name           = "x11",
+    .description    = "X11/GLX",
     .reconfig       = glx_reconfig,
     .control        = glx_control,
     .wakeup         = glx_wakeup,

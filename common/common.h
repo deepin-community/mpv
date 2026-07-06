@@ -18,12 +18,19 @@
 #ifndef MPLAYER_MPCOMMON_H
 #define MPLAYER_MPCOMMON_H
 
-#include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config.h"
+
+#if HAVE_POSIX || defined(__MINGW32__)
+#include <strings.h>
+#include <unistd.h>
+#endif
+
+#include "misc/mp_assert.h"
 #include "osdep/compiler.h"
 #include "mpv_talloc.h"
 
@@ -159,9 +166,30 @@ char **mp_dup_str_array(void *tctx, char **s);
 // This macro generally behaves like an assert(), except it will make sure to
 // kill the process even with NDEBUG.
 #define MP_HANDLE_OOM(x) do {   \
-        assert(x);              \
-        if (!(x))               \
+        void *oom_p_ = (x);     \
+        if (!oom_p_)            \
             abort();            \
     } while (0)
+
+#ifdef _MSC_VER
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+
+#ifndef STDIN_FILENO
+#define STDIN_FILENO 0
+#endif
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
+#ifndef STDERR_FILENO
+#define STDERR_FILENO 2
+#endif
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0
+#endif
+
+typedef long long ssize_t;
+typedef unsigned short mode_t;
+#endif
 
 #endif /* MPLAYER_MPCOMMON_H */
