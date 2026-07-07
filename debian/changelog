@@ -1,3 +1,13 @@
+mpv (0.40.0-3+deb13u1deepin1) unstable; urgency=medium
+
+  * Apply previous patches.
+  * Refresh patches.
+  * Relax ffmpeg version: 7.0 -> 6.1.
+  * Use global swscale.
+  * Build-Depends on libsndio-dev (>= 1.8.0).
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Tue, 07 Jul 2026 17:20:17 +0800
+
 mpv (0.40.0-3+deb13u1) trixie; urgency=medium
 
   * debian/gbp.conf: Work on debian/trixie branch
