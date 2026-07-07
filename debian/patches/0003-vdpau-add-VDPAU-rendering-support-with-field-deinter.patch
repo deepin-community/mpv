@@ -1,7 +1,23 @@
-Index: mpv-master/video/out/gpu/context.c
-===================================================================
---- mpv-master.orig/video/out/gpu/context.c
-+++ mpv-master/video/out/gpu/context.c
+From: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Date: Tue, 7 Jul 2026 16:06:08 +0800
+Subject: vdpau: add VDPAU rendering support with field deinterleaving
+
+Add support for VDPAU rendering in the GPU video output, including:
+- New GLX context probe (ra_ctx_glx_probe) for VDPAU initialization
+- Field deinterleaving textures for NV12 format handling
+- Modified VDPAU hwdec mapper to support field-based rendering
+---
+ video/out/gpu/context.c        |   4 +
+ video/out/gpu/hwdec.h          |   1 +
+ video/out/gpu/video.c          |  44 +++++++++++
+ video/out/opengl/context_glx.c |  25 +++++++
+ video/out/opengl/hwdec_vdpau.c | 164 +++++++++++++++++++++++++++++------------
+ 5 files changed, 189 insertions(+), 49 deletions(-)
+
+diff --git a/video/out/gpu/context.c b/video/out/gpu/context.c
+index 75dd804..6b7f9c5 100644
+--- a/video/out/gpu/context.c
++++ b/video/out/gpu/context.c
 @@ -35,6 +35,7 @@
  
  /* OpenGL */
@@ -10,7 +26,7 @@ Index: mpv-master/video/out/gpu/context.c
  extern const struct ra_ctx_fns ra_ctx_x11_egl;
  extern const struct ra_ctx_fns ra_ctx_drm_egl;
  extern const struct ra_ctx_fns ra_ctx_wayland_egl;
-@@ -114,6 +115,9 @@ static const struct ra_ctx_fns *contexts
+@@ -114,6 +115,9 @@ static const struct ra_ctx_fns *contexts[] = {
  #if HAVE_EGL_WAYLAND
      &ra_ctx_wayland_egl,
  #endif
@@ -20,10 +36,10 @@ Index: mpv-master/video/out/gpu/context.c
  #if HAVE_EGL_X11
      &ra_ctx_x11_egl,
  #endif
-Index: mpv-master/video/out/gpu/hwdec.h
-===================================================================
---- mpv-master.orig/video/out/gpu/hwdec.h
-+++ mpv-master/video/out/gpu/hwdec.h
+diff --git a/video/out/gpu/hwdec.h b/video/out/gpu/hwdec.h
+index 83222ec..3fc7383 100644
+--- a/video/out/gpu/hwdec.h
++++ b/video/out/gpu/hwdec.h
 @@ -71,6 +71,7 @@ struct ra_hwdec_mapper {
      // The common code won't mess with these, so you can e.g. set them in the
      // .init() callback.
@@ -32,10 +48,10 @@ Index: mpv-master/video/out/gpu/hwdec.h
  };
  
  // This can be used to map frames of a specific hw format as GL textures.
-Index: mpv-master/video/out/gpu/video.c
-===================================================================
---- mpv-master.orig/video/out/gpu/video.c
-+++ mpv-master/video/out/gpu/video.c
+diff --git a/video/out/gpu/video.c b/video/out/gpu/video.c
+index 5796ef1..bfcd8f9 100644
+--- a/video/out/gpu/video.c
++++ b/video/out/gpu/video.c
 @@ -204,6 +204,7 @@ struct gl_video {
      struct ra_tex *error_diffusion_tex[2];
      struct ra_tex *screen_tex;
@@ -44,7 +60,7 @@ Index: mpv-master/video/out/gpu/video.c
      struct ra_tex **hook_textures;
      int num_hook_textures;
      int idx_hook_textures;
-@@ -1125,6 +1126,8 @@ static void uninit_video(struct gl_video
+@@ -1125,6 +1126,8 @@ static void uninit_video(struct gl_video *p)
      p->hwdec_active = false;
      p->hwdec_overlay = NULL;
      ra_hwdec_mapper_free(&p->hwdec_mapper);
@@ -53,7 +69,7 @@ Index: mpv-master/video/out/gpu/video.c
  }
  
  static void pass_record(struct gl_video *p, const struct mp_pass_perf *perf)
-@@ -3695,6 +3698,42 @@ void gl_video_perfdata(struct gl_video *
+@@ -3695,6 +3698,42 @@ void gl_video_perfdata(struct gl_video *p, struct voctrl_performance_data *out)
      frame_perf_data(p->pass_redraw, &out->redraw);
  }
  
@@ -96,7 +112,7 @@ Index: mpv-master/video/out/gpu/video.c
  // Returns false on failure.
  static bool pass_upload_image(struct gl_video *p, struct mp_image *mpi, uint64_t id)
  {
-@@ -3732,6 +3771,11 @@ static bool pass_upload_image(struct gl_
+@@ -3732,6 +3771,11 @@ static bool pass_upload_image(struct gl_video *p, struct mp_image *mpi, uint64_t
              struct mp_image layout = {0};
              mp_image_set_params(&layout, &p->image_params);
              struct ra_tex **tex = p->hwdec_mapper->tex;
@@ -108,10 +124,10 @@ Index: mpv-master/video/out/gpu/video.c
              for (int n = 0; n < p->plane_count; n++) {
                  vimg->planes[n] = (struct texplane){
                      .w = mp_image_plane_w(&layout, n),
-Index: mpv-master/video/out/opengl/context_glx.c
-===================================================================
---- mpv-master.orig/video/out/opengl/context_glx.c
-+++ mpv-master/video/out/opengl/context_glx.c
+diff --git a/video/out/opengl/context_glx.c b/video/out/opengl/context_glx.c
+index 3022b47..489bb9c 100644
+--- a/video/out/opengl/context_glx.c
++++ b/video/out/opengl/context_glx.c
 @@ -308,6 +308,20 @@ uninit:
      return false;
  }
@@ -148,10 +164,10 @@ Index: mpv-master/video/out/opengl/context_glx.c
 +    .init           = glx_init_probe,
 +    .uninit         = glx_uninit,
 +};
-Index: mpv-master/video/out/opengl/hwdec_vdpau.c
-===================================================================
---- mpv-master.orig/video/out/opengl/hwdec_vdpau.c
-+++ mpv-master/video/out/opengl/hwdec_vdpau.c
+diff --git a/video/out/opengl/hwdec_vdpau.c b/video/out/opengl/hwdec_vdpau.c
+index 8585c66..45cc9eb 100644
+--- a/video/out/opengl/hwdec_vdpau.c
++++ b/video/out/opengl/hwdec_vdpau.c
 @@ -18,6 +18,8 @@
  #include <stddef.h>
  #include <assert.h>
@@ -184,7 +200,7 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
      if (!x11disp || !ra_is_gl(ra))
          return -1;
      GL *gl = ra_gl_get(ra);
-@@ -86,6 +88,10 @@ static void mapper_unmap(struct ra_hwdec
+@@ -86,6 +88,10 @@ static void mapper_unmap(struct ra_hwdec_mapper *mapper)
  
      if (p->mapped) {
          gl->VDPAUUnmapSurfacesNV(1, &p->vdpgl_surface);
@@ -195,7 +211,7 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
      }
      p->mapped = false;
  }
-@@ -111,7 +117,7 @@ static void mapper_uninit(struct ra_hwde
+@@ -111,7 +117,7 @@ static void mapper_uninit(struct ra_hwdec_mapper *mapper)
          gl->VDPAUUnregisterSurfaceNV(p->vdpgl_surface);
      p->vdpgl_surface = 0;
  
@@ -204,7 +220,7 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
  
      if (p->vdp_surface != VDP_INVALID_HANDLE) {
          vdp_st = vdp->output_surface_destroy(p->vdp_surface);
-@@ -157,32 +163,50 @@ static int mapper_init(struct ra_hwdec_m
+@@ -157,32 +163,50 @@ static int mapper_init(struct ra_hwdec_mapper *mapper)
  
      p->vdpgl_initialized = true;
  
@@ -279,7 +295,7 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
  
      gl_check_error(gl, mapper->log, "After initializing vdpau OpenGL interop");
  
-@@ -193,6 +217,8 @@ static int mapper_map(struct ra_hwdec_ma
+@@ -193,6 +217,8 @@ static int mapper_map(struct ra_hwdec_mapper *mapper)
  {
      struct priv *p = mapper->priv;
      GL *gl = p->gl;
@@ -288,7 +304,7 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
  
      int pe = mp_vdpau_handle_preemption(p->ctx, &p->preemption_counter);
      if (pe < 1) {
-@@ -204,33 +230,73 @@ static int mapper_map(struct ra_hwdec_ma
+@@ -204,33 +230,73 @@ static int mapper_map(struct ra_hwdec_mapper *mapper)
              return -1;
      }
  
@@ -302,22 +318,21 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
 +        uint32_t s_w, s_h;
 +        vdp_st = vdp->video_surface_get_parameters(surface, &s_chroma_type, &s_w, &s_h);
 +        CHECK_VDP_ERROR(mapper, "Error when calling vdp_video_surface_get_parameters");
-+
+ 
+-    mp_vdpau_mixer_render(p->mixer, NULL, p->vdp_surface, NULL, mapper->src,
+-                            NULL);
 +        p->vdpgl_surface = gl->VDPAURegisterVideoSurfaceNV(BRAINDEATH(surface),
 +                                                           GL_TEXTURE_2D,
 +                                                           4, p->gl_textures);
 +        if (!p->vdpgl_surface)
 +            return -1;
  
--    mp_vdpau_mixer_render(p->mixer, NULL, p->vdp_surface, NULL, mapper->src,
--                            NULL);
+-    gl->VDPAUMapSurfacesNV(1, &p->vdpgl_surface);
 +        gl->VDPAUSurfaceAccessNV(p->vdpgl_surface, GL_READ_ONLY);
 +        gl->VDPAUMapSurfacesNV(1, &p->vdpgl_surface);
- 
--    gl->VDPAUMapSurfacesNV(1, &p->vdpgl_surface);
++
 +        p->mapped = true;
- 
--    p->mapped = true;
++
 +        for (int n = 0; n < 4; n++) {
 +            bool chroma = n >= 2;
 +            struct ra_tex_params params = {
@@ -343,6 +358,9 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
 +        mp_vdpau_mixer_render(p->mixer, NULL, p->vdp_surface, NULL, mapper->src,
 +                              NULL);
  
+-    p->mapped = true;
++        gl->VDPAUMapSurfacesNV(1, &p->vdpgl_surface);
+ 
 -    struct ra_tex_params params = {
 -        .dimensions = 2,
 -        .w = mapper->src_params.w,
@@ -352,15 +370,9 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
 -        .render_src = true,
 -        .src_linear = true,
 -    };
-+        gl->VDPAUMapSurfacesNV(1, &p->vdpgl_surface);
- 
--    if (!params.format)
--        return -1;
 +        p->mapped = true;
  
--    mapper->tex[0] =
--        ra_create_wrapped_tex(mapper->ra, &params, p->gl_texture);
--    if (!mapper->tex[0])
+-    if (!params.format)
 -        return -1;
 +        struct ra_tex_params params = {
 +            .dimensions = 2,
@@ -371,7 +383,11 @@ Index: mpv-master/video/out/opengl/hwdec_vdpau.c
 +            .render_src = true,
 +            .src_linear = true,
 +        };
-+
+ 
+-    mapper->tex[0] =
+-        ra_create_wrapped_tex(mapper->ra, &params, p->gl_texture);
+-    if (!mapper->tex[0])
+-        return -1;
 +        if (!params.format)
 +            return -1;
 +
