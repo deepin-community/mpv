@@ -1,0 +1,38 @@
+From: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Date: Tue, 7 Jul 2026 16:06:08 +0800
+Subject: video/out: clear depth buffer along with color buffer in glClear
+ calls
+
+Add GL_DEPTH_BUFFER_BIT to glClear() calls in libmpv_gl.c and ra_gl.c
+to ensure the depth buffer is properly cleared when clearing the
+framebuffer, preventing potential rendering artifacts.
+---
+ video/out/opengl/libmpv_gl.c | 1 +
+ video/out/opengl/ra_gl.c     | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/video/out/opengl/libmpv_gl.c b/video/out/opengl/libmpv_gl.c
+index e9fffa7..1877aaf 100644
+--- a/video/out/opengl/libmpv_gl.c
++++ b/video/out/opengl/libmpv_gl.c
+@@ -66,6 +66,7 @@ static int wrap_fbo(struct libmpv_gpu_context *ctx, mpv_render_param *params,
+ {
+     struct priv *p = ctx->priv;
+ 
++    p->gl->Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     mpv_opengl_fbo *fbo =
+         get_mpv_render_param(params, MPV_RENDER_PARAM_OPENGL_FBO, NULL);
+     if (!fbo)
+diff --git a/video/out/opengl/ra_gl.c b/video/out/opengl/ra_gl.c
+index 345a5b8..ec3afe0 100644
+--- a/video/out/opengl/ra_gl.c
++++ b/video/out/opengl/ra_gl.c
+@@ -691,7 +691,7 @@ static void gl_clear(struct ra *ra, struct ra_tex *dst, float color[4],
+ 
+     gl->Enable(GL_SCISSOR_TEST);
+     gl->ClearColor(color[0], color[1], color[2], color[3]);
+-    gl->Clear(GL_COLOR_BUFFER_BIT);
++    gl->Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     gl->Disable(GL_SCISSOR_TEST);
+ 
+     gl->BindFramebuffer(GL_FRAMEBUFFER, 0);

@@ -1,5 +1,5 @@
 0001-player-create-missing-folders-for-watch-history-path.patch
-pgv-flower-screen.patch
-vdpau-render.patch
-Fix-the-problem-of-the-full-screen-crash.patch
-fix-mpv.patch
+0002-Pass-filename-to-decoder-for-codec-profile-and-level.patch
+0003-vdpau-add-VDPAU-rendering-support-with-field-deinter.patch
+0004-vo_vaapi-rewrite-OSD-rendering-to-support-multiple-s.patch
+0005-video-out-clear-depth-buffer-along-with-color-buffer.patch

@@ -1,8 +1,24 @@
-Index: mpv-master/filters/f_decoder_wrapper.c
-===================================================================
---- mpv-master.orig/filters/f_decoder_wrapper.c
-+++ mpv-master/filters/f_decoder_wrapper.c
-@@ -347,6 +347,7 @@ int mp_decoder_wrapper_control(struct mp
+From: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Date: Tue, 7 Jul 2026 16:06:08 +0800
+Subject: Pass filename to decoder for codec profile and level detection
+
+Propagate the file path through the filter chain so the libavcodec
+decoder can open the file with libavformat and retrieve the codec's
+profile and level before opening the codec context. Also attempt to
+set the framerate from the codec's fps field.
+---
+ filters/f_decoder_wrapper.c |  1 +
+ filters/f_decoder_wrapper.h |  2 ++
+ filters/filter.h            |  2 ++
+ player/video.c              |  1 +
+ video/decode/vd_lavc.c      | 27 +++++++++++++++++++++++++++
+ 5 files changed, 33 insertions(+)
+
+diff --git a/filters/f_decoder_wrapper.c b/filters/f_decoder_wrapper.c
+index dc9433b..f8e45a6 100644
+--- a/filters/f_decoder_wrapper.c
++++ b/filters/f_decoder_wrapper.c
+@@ -347,6 +347,7 @@ int mp_decoder_wrapper_control(struct mp_decoder_wrapper *d,
                                 enum dec_ctrl cmd, void *arg)
  {
      struct priv *p = d->f->priv;
@@ -10,10 +26,10 @@ Index: mpv-master/filters/f_decoder_wrapper.c
      int res = CONTROL_UNKNOWN;
      thread_lock(p);
      if (cmd == VDCTRL_GET_HWDEC) {
-Index: mpv-master/filters/f_decoder_wrapper.h
-===================================================================
---- mpv-master.orig/filters/f_decoder_wrapper.h
-+++ mpv-master/filters/f_decoder_wrapper.h
+diff --git a/filters/f_decoder_wrapper.h b/filters/f_decoder_wrapper.h
+index a352dc0..fe78476 100644
+--- a/filters/f_decoder_wrapper.h
++++ b/filters/f_decoder_wrapper.h
 @@ -35,6 +35,8 @@ struct mp_decoder_wrapper {
  
      // Can be set by user.
@@ -23,10 +39,10 @@ Index: mpv-master/filters/f_decoder_wrapper.h
  };
  
  // Create the decoder wrapper for the given stream, plus underlying decoder.
-Index: mpv-master/filters/filter.h
-===================================================================
---- mpv-master.orig/filters/filter.h
-+++ mpv-master/filters/filter.h
+diff --git a/filters/filter.h b/filters/filter.h
+index b19169a..120a68e 100644
+--- a/filters/filter.h
++++ b/filters/filter.h
 @@ -339,6 +339,8 @@ struct mp_filter {
  
      // Private state for the generic filter code.
@@ -36,11 +52,11 @@ Index: mpv-master/filters/filter.h
  };
  
  // Return a symbolic name, which is set at init time. NULL if no name.
-Index: mpv-master/player/video.c
-===================================================================
---- mpv-master.orig/player/video.c
-+++ mpv-master/player/video.c
-@@ -188,6 +188,7 @@ int init_video_decoder(struct MPContext
+diff --git a/player/video.c b/player/video.c
+index bec2d68..335181a 100644
+--- a/player/video.c
++++ b/player/video.c
+@@ -188,6 +188,7 @@ int init_video_decoder(struct MPContext *mpctx, struct track *track)
      if (!track->dec)
          goto err_out;
  
@@ -48,10 +64,10 @@ Index: mpv-master/player/video.c
      if (!mp_decoder_wrapper_reinit(track->dec))
          goto err_out;
  
-Index: mpv-master/video/decode/vd_lavc.c
-===================================================================
---- mpv-master.orig/video/decode/vd_lavc.c
-+++ mpv-master/video/decode/vd_lavc.c
+diff --git a/video/decode/vd_lavc.c b/video/decode/vd_lavc.c
+index 3045af9..0f2d36d 100644
+--- a/video/decode/vd_lavc.c
++++ b/video/decode/vd_lavc.c
 @@ -28,6 +28,8 @@
  #include <libavutil/opt.h>
  #include <libavutil/intreadwrite.h>
@@ -61,7 +77,7 @@ Index: mpv-master/video/decode/vd_lavc.c
  
  #include "mpv_talloc.h"
  #include "common/msg.h"
-@@ -733,6 +735,13 @@ static void init_avctx(struct mp_filter
+@@ -733,6 +735,13 @@ static void init_avctx(struct mp_filter *vd)
      avctx->codec_id = lavc_codec->id;
      avctx->pkt_timebase = ctx->codec_timebase;
  
@@ -75,7 +91,7 @@ Index: mpv-master/video/decode/vd_lavc.c
      ctx->pic = av_frame_alloc();
      if (!ctx->pic)
          goto error;
-@@ -833,6 +842,23 @@ static void init_avctx(struct mp_filter
+@@ -833,6 +842,23 @@ static void init_avctx(struct mp_filter *vd)
          goto error;
      }
  
@@ -99,7 +115,7 @@ Index: mpv-master/video/decode/vd_lavc.c
      /* open it */
      if (avcodec_open2(avctx, lavc_codec, NULL) < 0)
          goto error;
-@@ -1417,6 +1443,7 @@ static struct mp_decoder *create(struct
+@@ -1417,6 +1443,7 @@ static struct mp_decoder *create(struct mp_filter *parent,
                                   const char *decoder)
  {
      struct mp_filter *vd = mp_filter_create(parent, &vd_lavc_filter);

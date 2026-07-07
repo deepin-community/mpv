@@ -1,7 +1,15 @@
-Index: mpv-master/video/out/vo_vaapi.c
-===================================================================
---- mpv-master.orig/video/out/vo_vaapi.c
-+++ mpv-master/video/out/vo_vaapi.c
+From: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
+Date: Tue, 7 Jul 2026 16:06:08 +0800
+Subject: vo_vaapi: rewrite OSD rendering to support multiple subpictures
+
+---
+ video/out/vo_vaapi.c | 212 +++++++++++++++++++++++++++++----------------------
+ 1 file changed, 122 insertions(+), 90 deletions(-)
+
+diff --git a/video/out/vo_vaapi.c b/video/out/vo_vaapi.c
+index bb34fd9..fb990f8 100644
+--- a/video/out/vo_vaapi.c
++++ b/video/out/vo_vaapi.c
 @@ -32,7 +32,6 @@
  #include "video/out/vo.h"
  #include "video/mp_image_pool.h"
@@ -34,7 +42,7 @@ Index: mpv-master/video/out/vo_vaapi.c
  static void draw_osd(struct vo *vo);
  
  
-@@ -495,20 +499,22 @@ static bool render_to_screen(struct priv
+@@ -495,20 +499,22 @@ static bool render_to_screen(struct priv *p, struct mp_image *mpi)
      if (surface == VA_INVALID_ID)
          return false;
  
@@ -71,7 +79,7 @@ Index: mpv-master/video/out/vo_vaapi.c
      }
  
      int flags = va_get_colorspace_flag(p->image_params.repr.sys) |
-@@ -528,11 +534,14 @@ static bool render_to_screen(struct priv
+@@ -528,11 +534,14 @@ static bool render_to_screen(struct priv *p, struct mp_image *mpi)
                            flags);
      CHECK_VA_STATUS(p, "vaPutSurface()");
  
@@ -152,9 +160,7 @@ Index: mpv-master/video/out/vo_vaapi.c
 -                    mod_rc, MP_ARRAY_SIZE(mod_rc), &num_mod_rc);
 +        // Clear borders and regions uncovered by sub-bitmaps
 +        mp_image_clear(&vaimg, 0, 0, w + pad, h + pad);
- 
--    if (!osd)
--        goto error;
++
 +        for (int n = 0; n < imgs->num_parts; n++) {
 +            struct sub_bitmap *sub = &imgs->parts[n];
 +            struct mp_image src = {0};
@@ -169,21 +175,23 @@ Index: mpv-master/video/out/vo_vaapi.c
 +                tmp = mp_image_alloc(IMGFMT_BGRA, sub->dw, sub->dh);
 +                if (!tmp)
 +                    goto error;
- 
--    struct vaapi_osd_part *part = &p->osd_part;
++
 +                mp_image_swscale(tmp, &src, mp_sws_fast_flags);
 +                bmp = tmp;
 +            }
  
--    part->active = false;
+-    if (!osd)
+-        goto error;
 +            // Note: nothing guarantees that the sub-bitmaps don't overlap.
 +            //       But in all currently existing cases, they don't.
 +            //       We simply hope that this won't change, and nobody will
 +            //       ever notice our little shortcut here.
-+
+ 
+-    struct vaapi_osd_part *part = &p->osd_part;
 +            size_t dst = (sub->y - bb.y0) * vaimg.stride[0] +
 +                         (sub->x - bb.x0) * 4;
-+
+ 
+-    part->active = false;
 +            memcpy_pic(vaimg.planes[0] + dst, bmp->planes[0], sub->dw * 4,
 +                       sub->dh, vaimg.stride[0], bmp->stride[0]);
 +            talloc_free(tmp);
