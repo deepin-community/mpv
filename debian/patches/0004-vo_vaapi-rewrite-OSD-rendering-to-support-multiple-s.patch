@@ -3,11 +3,11 @@ Date: Tue, 7 Jul 2026 16:06:08 +0800
 Subject: vo_vaapi: rewrite OSD rendering to support multiple subpictures
 
 ---
- video/out/vo_vaapi.c | 212 +++++++++++++++++++++++++++++----------------------
- 1 file changed, 122 insertions(+), 90 deletions(-)
+ video/out/vo_vaapi.c | 220 ++++++++++++++++++++++++++++++---------------------
+ 1 file changed, 130 insertions(+), 90 deletions(-)
 
 diff --git a/video/out/vo_vaapi.c b/video/out/vo_vaapi.c
-index bb34fd9..fb990f8 100644
+index bb34fd9..71a537b 100644
 --- a/video/out/vo_vaapi.c
 +++ b/video/out/vo_vaapi.c
 @@ -32,7 +32,6 @@
@@ -99,7 +99,7 @@ index bb34fd9..fb990f8 100644
      }
  
      return true;
-@@ -618,89 +627,108 @@ error:
+@@ -618,89 +627,116 @@ error:
      return -1;
  }
  
@@ -107,26 +107,26 @@ index bb34fd9..fb990f8 100644
 +static void draw_osd_cb(void *pctx, struct sub_bitmaps *imgs)
  {
 -    struct priv *p = vo->priv;
--
++    struct priv *p = pctx;
+ 
 -    struct mp_image *cur = p->output_surfaces[p->output_surface];
 -    double pts = cur ? cur->pts : 0;
--
++    struct vaapi_osd_part *part = &p->osd_parts[imgs->render_index];
++    if (imgs->change_id != part->change_id) {
++        part->change_id = imgs->change_id;
+ 
 -    if (!p->osd_format.fourcc)
 -        return;
 -
 -    struct mp_osd_res vid_res = osd_res_from_image_params(vo->params);
-+    struct priv *p = pctx;
- 
+-
 -    struct mp_osd_res *res;
 -    if (p->osd_screen) {
 -        res = &p->screen_osd_res;
 -    } else {
 -        res = &vid_res;
 -    }
-+    struct vaapi_osd_part *part = &p->osd_parts[imgs->render_index];
-+    if (imgs->change_id != part->change_id) {
-+        part->change_id = imgs->change_id;
- 
+-
 -    p->osd_part.active = false;
 +        struct mp_rect bb;
 +        if (!mp_sub_bitmaps_bb(imgs, &bb))
@@ -176,7 +176,15 @@ index bb34fd9..fb990f8 100644
 +                if (!tmp)
 +                    goto error;
 +
-+                mp_image_swscale(tmp, &src, mp_sws_fast_flags);
++                struct mp_sws_context *sws = mp_sws_alloc(NULL);
++                sws->log = p->log;
++                sws->flags = mp_sws_fast_flags;
++                if (mp_sws_scale(sws, tmp, &src) < 0) {
++                    talloc_free(sws);
++                    talloc_free(tmp);
++                    goto error;
++                }
++                talloc_free(sws);
 +                bmp = tmp;
 +            }
  
@@ -204,12 +212,12 @@ index bb34fd9..fb990f8 100644
 +        if (!va_image_unmap(p->mpvaapi, &img->image))
              goto error;
 -    }
--
+ 
 -    struct vaapi_osd_image *img = &part->image;
 -    struct mp_image vaimg;
 -    if (!va_image_map(p->mpvaapi, &img->image, &vaimg))
 -        goto error;
- 
+-
 -    for (int n = 0; n < num_mod_rc; n++) {
 -        struct mp_rect *rc = &mod_rc[n];
 +        part->subpic = (struct vaapi_subpic) {
@@ -271,7 +279,7 @@ index bb34fd9..fb990f8 100644
  }
  
  static int control(struct vo *vo, uint32_t request, void *data)
-@@ -730,8 +758,10 @@ static void uninit(struct vo *vo)
+@@ -730,8 +766,10 @@ static void uninit(struct vo *vo)
      free_video_specific(p);
      talloc_free(p->pool);
  
@@ -284,7 +292,7 @@ index bb34fd9..fb990f8 100644
  
      if (vo->hwdec_devs) {
          hwdec_devices_remove(vo->hwdec_devs, &p->mpvaapi->hwctx);
-@@ -809,9 +839,11 @@ static int preinit(struct vo *vo)
+@@ -809,9 +847,11 @@ static int preinit(struct vo *vo)
      if (!p->osd_format.fourcc)
          MP_ERR(vo, "OSD format not supported. Disabling OSD.\n");
  
