@@ -1,3 +1,13 @@
+mpv (0.40.0-3+deb13u1deepin1) unstable; urgency=medium
+
+  * Restore deepin-specific patches from master branch:
+    - pgv-flower-screen: Fix flower screen issue
+    - vdpau-render: Add VDPAU rendering support
+    - Fix-the-problem-of-the-full-screen-crash: Fix full screen crash in vaapi
+    - fix-mpv: Fix OpenGL rendering issues
+
+ -- lichenggang <lichenggang@uniontech.com>  Fri, 17 Jul 2026 23:30:00 +0800
+
 mpv (0.40.0-3+deb13u1) trixie; urgency=medium
 
   * debian/gbp.conf: Work on debian/trixie branch
