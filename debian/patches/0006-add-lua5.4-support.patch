@@ -1,0 +1,87 @@
+From: zhanghongyuan <zhanghongyuan@uniontech.com>
+Date: Thu, 5 Nov 2026 14:23:53 +0800
+Subject: add Lua 5.4 support
+
+Probe lua54/lua5.4/lua-5.4 in meson.build/meson.options, relax the
+runtime version check in player/lua.c to accept 5.3 and 5.4, and keep
+Lua 5.1/5.2's permissive luaL_checkinteger behavior (truncate
+non-integral floats instead of raising "number has no integer
+representation") so scripts like osc.lua keep working on 5.4.
+---
+ meson.build   |  5 ++++-
+ meson.options |  5 +++--
+ player/lua.c  | 22 ++++++++++++++++++++--
+ 3 files changed, 27 insertions(+), 5 deletions(-)
+
+diff --git a/meson.build b/meson.build
+index 7572769..d01bf47 100644
+--- a/meson.build
++++ b/meson.build
+@@ -700,7 +700,10 @@ if lua_opt != 'disabled'
+                    ['luajit', '>= 2.0.0'],
+                    ['lua51', '>= 5.1.0'],
+                    ['lua5.1', '>= 5.1.0'],
+-                   ['lua-5.1', '>= 5.1.0']]
++                   ['lua-5.1', '>= 5.1.0'],
++                   ['lua54', '>= 5.4.0'],
++                   ['lua5.4', '>= 5.4.0'],
++                   ['lua-5.4', '>= 5.4.0']]
+     foreach version : lua_version
+         if lua_opt == 'auto' or lua_opt == 'enabled'
+             lua = dependency(version[0], version: version[1], required: false)
+diff --git a/meson.options b/meson.options
+index dae0a33..55c3c19 100644
+--- a/meson.options
++++ b/meson.options
+@@ -21,8 +21,9 @@ option('libavdevice', type: 'feature', value: 'auto', description: 'libavdevice'
+ option('libbluray', type: 'feature', value: 'auto', description: 'Bluray support')
+ option('lua',
+     type: 'combo',
+-    choices: ['lua', 'lua52', 'lua5.2', 'lua-5.2', 'luajit', 'lua51',
+-              'lua5.1', 'lua-5.1', 'auto', 'enabled', 'disabled'],
++    choices: ['lua', 'lua54', 'lua5.4', 'lua-5.4', 'lua52', 'lua5.2',
++              'lua-5.2', 'luajit', 'lua51', 'lua5.1', 'lua-5.1',
++              'auto', 'enabled', 'disabled'],
+     value: 'auto',
+     description: 'Lua'
+ )
+diff --git a/player/lua.c b/player/lua.c
+index 4786419..9335309 100644
+--- a/player/lua.c
++++ b/player/lua.c
+@@ -122,6 +122,24 @@ static int mp_cpcall (lua_State *L, lua_CFunction func, void *ud)
+ }
+ #endif
+ 
++#if LUA_VERSION_NUM >= 503
++// Lua 5.3+ luaL_checkinteger() raises "number has no integer representation"
++// for non-integral floats, while Lua 5.1/5.2 silently truncated them. Keep
++// the old permissive behavior so scripts behave the same on newer Lua.
++static lua_Integer mp_lua_checkinteger(lua_State *L, int arg)
++{
++    if (lua_type(L, arg) == LUA_TNUMBER) {
++        double d = lua_tonumber(L, arg);
++        if (d >= (double)LUA_MININTEGER && d < -(double)LUA_MININTEGER)
++            return (lua_Integer)d;
++        // +-inf, NaN or out of range: Lua 5.1/5.2 never errored on numbers
++        return 0;
++    }
++    return luaL_checkinteger(L, arg);
++}
++#define luaL_checkinteger mp_lua_checkinteger
++#endif
++
+ // Ensure that the given argument exists, even if it's nil. Can be used to
+ // avoid confusing the last missing optional arg with the first temporary value
+ // pushed to the stack.
+@@ -462,8 +480,8 @@ static int load_lua(struct mp_script_args *args)
+ 
+     stats_register_thread_cputime(ctx->stats, "cpu");
+ 
+-    if (LUA_VERSION_NUM != 501 && LUA_VERSION_NUM != 502) {
+-        MP_FATAL(ctx, "Only Lua 5.1 and 5.2 are supported.\n");
++    if (LUA_VERSION_NUM < 501 || LUA_VERSION_NUM > 504) {
++        MP_FATAL(ctx, "Only Lua 5.1, 5.2, 5.3 and 5.4 are supported.\n");
+         goto error_out;
+     }
+ 

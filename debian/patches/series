@@ -3,3 +3,4 @@
 0003-vdpau-add-VDPAU-rendering-support-with-field-deinter.patch
 0004-vo_vaapi-rewrite-OSD-rendering-to-support-multiple-s.patch
 0005-video-out-clear-depth-buffer-along-with-color-buffer.patch
+0006-add-lua5.4-support.patch
