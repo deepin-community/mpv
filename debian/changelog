@@ -1,3 +1,11 @@
+mpv (0.40.0-3+deb13u1deepin4) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-123095 (high) - ytdl_hook: reject playlist entry
+    URLs with control characters   Upstream: https://github.com/mpv-
+    player/mpv/commit/c3096515dcd26c14004f985538b5aa41db613856
+
+ -- deepin-ci-robot <packages@deepin.org>  Fri, 06 Nov 2026 12:00:19 +0800
+
 mpv (0.40.0-3+deb13u1deepin3) unstable; urgency=medium
 
   * Link against libdisplay-info3 (libdisplay-info 0.3.0) instead of the
